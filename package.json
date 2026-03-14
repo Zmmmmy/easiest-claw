@@ -56,7 +56,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^35.1.2",
     "electron-builder": "^25.1.8",
-    "electron-vite": "^3.0.0",
+    "electron-vite": "^5.0.0",
     "archiver": "^7.0.1",
     "eslint": "^9.21.0",
     "png-to-ico": "^3.0.1",

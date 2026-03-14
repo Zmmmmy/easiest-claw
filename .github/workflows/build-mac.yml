@@ -8,6 +8,8 @@ on:
 
 jobs:
   build-mac:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:

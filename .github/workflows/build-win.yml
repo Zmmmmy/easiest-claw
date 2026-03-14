@@ -51,9 +51,15 @@ jobs:
           $url = "https://nodejs.org/dist/v$NODE_VER/node-v$NODE_VER-$arch.zip"
           Invoke-WebRequest -Uri $url -OutFile node-win.zip
           Expand-Archive -Path node-win.zip -DestinationPath . -Force
+          $src = "node-v$NODE_VER-$arch"
           New-Item -ItemType Directory -Force -Path resources/node | Out-Null
-          Copy-Item "node-v$NODE_VER-$arch/node.exe" "resources/node/node.exe"
-          Remove-Item -Recurse -Force "node-v$NODE_VER-$arch", node-win.zip
+          New-Item -ItemType Directory -Force -Path resources/node/node_modules | Out-Null
+          # node 可执行文件
+          Copy-Item "$src/node.exe" "resources/node/node.exe"
+          # npm（npm.cmd 依赖 node_modules/npm）
+          Copy-Item "$src/npm.cmd" "resources/node/npm.cmd"
+          Copy-Item -Recurse "$src/node_modules/npm" "resources/node/node_modules/npm"
+          Remove-Item -Recurse -Force $src, node-win.zip
 
       - name: Bundle OpenClaw
         run: node scripts/bundle-openclaw.mjs

@@ -97,6 +97,8 @@ export function initAppUpdater(win: BrowserWindow): void {
 }
 
 export function registerAppUpdaterHandlers(ipcMain: IpcMain): void {
+  ipcMain.handle('app:version', () => app.getVersion())
+
   ipcMain.handle('app:check-update', async () => {
     if (!app.isPackaged) return { ok: true, result: { skipped: true, reason: 'dev mode' } }
     try {

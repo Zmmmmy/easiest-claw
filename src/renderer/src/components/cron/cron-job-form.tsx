@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useCronMutations } from "@/hooks/use-cron"
 import { useApp } from "@/store/app-context"
 import type { CronJob, CronJobCreateInput, CronSchedule } from "@/types/cron"
@@ -289,14 +290,15 @@ export function CronJobForm({ editingJob, onCreated, onCancelEdit }: CronJobForm
         <div className="flex items-end gap-2">
           <div className="space-y-1 w-24">
             <Label className="text-xs">调度</Label>
-            <select
-              className="h-8 w-full rounded-md border border-input px-2 text-sm bg-background shadow-xs focus:outline-none focus:ring-1 focus:ring-ring"
-              value={scheduleKind}
-              onChange={(e) => setScheduleKind(e.target.value as ScheduleKind)}
-            >
-              <option value="every">每隔</option>
-              <option value="cron">Cron</option>
-            </select>
+            <Select value={scheduleKind} onValueChange={(v) => setScheduleKind(v as ScheduleKind)}>
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="every">每隔</SelectItem>
+                <SelectItem value="cron">Cron</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {scheduleKind === "every" ? (
@@ -316,19 +318,16 @@ export function CronJobForm({ editingJob, onCreated, onCancelEdit }: CronJobForm
               </div>
               <div className="space-y-1 w-20">
                 <Label className="text-xs">单位</Label>
-                <select
-                  className="h-8 w-full rounded-md border border-input px-2 text-sm bg-background shadow-xs focus:outline-none focus:ring-1 focus:ring-ring"
-                  value={intervalUnit}
-                  onChange={(e) =>
-                    setIntervalUnit(
-                      e.target.value as "seconds" | "minutes" | "hours"
-                    )
-                  }
-                >
-                  <option value="seconds">秒</option>
-                  <option value="minutes">分钟</option>
-                  <option value="hours">小时</option>
-                </select>
+                <Select value={intervalUnit} onValueChange={(v) => setIntervalUnit(v as "seconds" | "minutes" | "hours")}>
+                  <SelectTrigger size="sm" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="seconds">秒</SelectItem>
+                    <SelectItem value="minutes">分钟</SelectItem>
+                    <SelectItem value="hours">小时</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </>
           ) : (

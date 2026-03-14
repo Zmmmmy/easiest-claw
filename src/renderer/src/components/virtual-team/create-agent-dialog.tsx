@@ -3,6 +3,7 @@ import { AlertCircle, Loader2, Settings } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -201,17 +202,16 @@ export function CreateAgentDialog({ open, onOpenChange }: CreateAgentDialogProps
               </div>
             ) : (
               <>
-                <select
-                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  disabled={loading}
-                >
-                  <option value="" disabled>{t("createAgent.modelPlaceholder")}</option>
-                  {availableModels.map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
+                <Select value={model} onValueChange={setModel} disabled={loading}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("createAgent.modelPlaceholder")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableModels.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-muted-foreground">
                   {t("createAgent.modelHelper")}
                 </p>

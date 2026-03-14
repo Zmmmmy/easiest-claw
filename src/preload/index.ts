@@ -216,6 +216,7 @@ const ipcApi = {
   },
 
   // ── App auto-update ───────────────────────────────────────────────────────
+  appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   appCheckUpdate: () => ipcRenderer.invoke('app:check-update'),
   appDownloadUpdate: () => ipcRenderer.invoke('app:download-update'),
   appInstallUpdate: () => ipcRenderer.invoke('app:install-update'),

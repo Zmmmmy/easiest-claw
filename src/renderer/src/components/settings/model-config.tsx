@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useI18n } from "@/i18n"
 import { AddProviderDialog } from "./add-provider-dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 import type {
   ModelConfig,
@@ -273,19 +274,21 @@ export function ModelConfigPanel() {
         <div className="text-sm font-medium">{t("modelConfig.activeConfig")}</div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-muted-foreground shrink-0">{t("modelConfig.primaryModel")}</label>
-          <select
-            className="flex-1 h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            value={defaults.primary || ""}
-            onChange={(e) => setDefaults((d) => ({ ...d, primary: e.target.value }))}
-          >
-            <option value="">{t("modelConfig.notSelected")}</option>
-            {allModels.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-                {!m.hasKey ? t("modelConfig.noApiKey") : ""}
-              </option>
-            ))}
-          </select>
+          <Select
+              value={defaults.primary || ""}
+              onValueChange={(v) => setDefaults((d) => ({ ...d, primary: v }))}
+            >
+              <SelectTrigger size="sm" className="flex-1">
+                <SelectValue placeholder={t("modelConfig.notSelected")} />
+              </SelectTrigger>
+              <SelectContent>
+                {allModels.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}{!m.hasKey ? t("modelConfig.noApiKey") : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
         </div>
         {defaults.primary && (
           <div className="text-xs text-muted-foreground">

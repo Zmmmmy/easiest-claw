@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useI18n } from "@/i18n"
 
 import type { ModelConfig, ModelProvider } from "./model-config-types"
@@ -216,17 +217,16 @@ export function ProviderCard({
 
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">{t("modelConfig.apiType")}</label>
-              <select
-                className="h-7 w-full rounded-lg border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                value={provider.api}
-                onChange={(e) => onUpdate({ api: e.target.value })}
-              >
-                {API_TYPE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <Select value={provider.api} onValueChange={(v) => onUpdate({ api: v })}>
+                <SelectTrigger size="sm" className="w-full h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {API_TYPE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-1">

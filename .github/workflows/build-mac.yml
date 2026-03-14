@@ -2,9 +2,9 @@ name: Build macOS
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
+  # push:
+  #   tags:
+  #     - 'v*'
 
 jobs:
   build-mac:
@@ -69,10 +69,14 @@ jobs:
           NODE_VER=22.12.0
           curl -fsSL "https://nodejs.org/dist/v${NODE_VER}/node-v${NODE_VER}-darwin-${{ matrix.arch }}.tar.gz" \
             | tar -xz
-          mkdir -p resources/node
-          cp "node-v${NODE_VER}-darwin-${{ matrix.arch }}/bin/node" resources/node/node
+          SRC="node-v${NODE_VER}-darwin-${{ matrix.arch }}"
+          mkdir -p resources/node/lib/node_modules
+          # node 可执行文件
+          cp "$SRC/bin/node" resources/node/node
           chmod +x resources/node/node
-          rm -rf "node-v${NODE_VER}-darwin-${{ matrix.arch }}"
+          # npm（lib/node_modules/npm/bin/npm-cli.js，由 update.ts 直接调用）
+          cp -r "$SRC/lib/node_modules/npm" resources/node/lib/node_modules/npm
+          rm -rf "$SRC"
 
       - name: Bundle OpenClaw
         run: node scripts/bundle-openclaw.mjs

@@ -79,15 +79,24 @@ function getOpenclawDir(): string | null {
   return null
 }
 
-function getNpmArgs(version: string): { cmd: string; args: string[] } {
-  const npmBin = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+function getNpmArgs(version: string): { cmd: string; args: string[]; shell: boolean } {
   const nodeDir = app.isPackaged
     ? join(process.resourcesPath, 'node')
     : join(app.getAppPath(), 'resources', 'node')
-  const cmd = join(nodeDir, npmBin)
-  if (!existsSync(cmd)) throw new Error(`找不到内置 npm: ${cmd}`)
+
   const installArgs = ['install', `openclaw@${version}`, '--registry', REGISTRY, '--no-audit', '--no-fund']
-  return { cmd, args: installArgs }
+
+  if (process.platform === 'win32') {
+    const cmd = join(nodeDir, 'npm.cmd')
+    if (!existsSync(cmd)) throw new Error(`找不到内置 npm: ${cmd}`)
+    return { cmd, args: installArgs, shell: true }
+  } else {
+    // macOS / Linux：直接用 node 运行 npm-cli.js，避免 shell 脚本相对路径问题
+    const nodeExe = join(nodeDir, 'node')
+    const npmCli = join(nodeDir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')
+    if (!existsSync(npmCli)) throw new Error(`找不到内置 npm-cli: ${npmCli}`)
+    return { cmd: nodeExe, args: [npmCli, ...installArgs], shell: false }
+  }
 }
 
 // ── 版本比较（支持 YYYY.M.D 和 semver，忽略提交哈希后缀）──────────────────────
@@ -149,12 +158,12 @@ async function runNpmInstall(
     overrides: { 'libsignal-node': `file:${stubDir.replace(/\\/g, '/')}` },
   }))
 
-  const { cmd, args } = getNpmArgs(version)
+  const { cmd, args, shell } = getNpmArgs(version)
 
   return new Promise((resolve) => {
     const child = spawn(cmd, args, {
       cwd: tmpDir,
-      shell: process.platform === 'win32',
+      shell,
       windowsHide: true,
     })
     const handleOut = (data: Buffer) => {

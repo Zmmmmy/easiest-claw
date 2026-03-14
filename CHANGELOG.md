@@ -10,19 +10,19 @@
 
 ## [Unreleased]
 
-> 在这里写下一个版本的更新内容，发版时会自动提取为 Release 正文。
-
 ### 新增
 
--
+- 设置页新增「关于」页面，显示应用版本号，支持手动检查/下载/安装更新（基于 GitHub Releases）
 
 ### 修复
 
--
+- 修复内置 OpenClaw 在打包版本中升级失败：CI 未捆绑 npm，现已补充（Windows: npm.cmd + node_modules/npm，macOS: lib/node_modules/npm）
+- 修复 CI electron-builder 因 publish 配置尝试自动上传导致缺少 GH_TOKEN 报错（改用 `--publish never`）
 
 ### 变更
 
--
+- 所有下拉框替换为 shadcn/ui Select 组件，告别原生样式
+- macOS CI 暂时关闭 tag 自动触发，仅保留手动触发（workflow_dispatch）
 
 ---
 

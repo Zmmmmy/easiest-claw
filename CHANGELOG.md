@@ -10,19 +10,14 @@
 
 ## [Unreleased]
 
-> 在这里写下一个版本的更新内容，发版时会自动提取为 Release 正文。
-
 ### 新增
 
--
+- 关于页面新增应用文件夹、数据文件夹、日志文件夹展示，带一键复制和打开功能
 
 ### 修复
 
--
-
-### 变更
-
--
+- 修复 CI release 正文显示为 commit message 而非 CHANGELOG 内容（/tmp 路径在 Windows runner 上不一致，改用 $RUNNER_TEMP）
+- 修复检查更新失败（v0.1.0 404）：删除早期测试遗留的 v0.1.0 tag，该 tag 被 electron-updater 误判为最新版
 
 ---
 

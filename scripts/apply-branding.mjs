@@ -27,7 +27,6 @@ const brandingTs = [
   ``,
   `export const APP_NAME           = '${cfg.appName}'`,
   `export const APP_ID             = '${cfg.appId}'`,
-  `export const SETTINGS_DIR_NAME  = '${cfg.settingsDirName}'`,
   `export const FIREWALL_RULE_NAME = '${cfg.firewallRuleName}'`,
   ``,
 ].join('\n')

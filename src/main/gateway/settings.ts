@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { SETTINGS_DIR_NAME } from '@shared/branding'
+import { app } from 'electron'
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
 
@@ -41,10 +41,12 @@ const readOpenclawDefaults = (): { url: string; token: string } | null => {
   }
 }
 
-// ── Settings file: ~/.openclaw/EasiestClaw-desktop/settings.json ───────────────────
+// ── Settings file: %AppData%/EasiestClaw/settings.json ────────────────────────
+// 存放在 Electron userData 目录，与安装目录分离，不随更新安装丢失，
+// 卸载时由 NSIS 脚本提示用户清除。
 
 const settingsPath = (): string =>
-  path.join(resolveStateDir(), SETTINGS_DIR_NAME, 'settings.json')
+  path.join(app.getPath('userData'), 'settings.json')
 
 export const loadSettings = (): AppSettings => {
   const p = settingsPath()

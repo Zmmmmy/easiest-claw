@@ -3,5 +3,4 @@
 
 export const APP_NAME           = 'EasiestClaw'
 export const APP_ID             = 'com.EasiestClaw.desktop'
-export const SETTINGS_DIR_NAME  = 'EasiestClaw-desktop'
 export const FIREWALL_RULE_NAME = 'EasiestClaw'

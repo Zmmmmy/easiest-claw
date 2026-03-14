@@ -17,9 +17,6 @@ export default {
   productName:     'EasiestClaw',                    // 安装包 / Dock 名称
   description:     'EasiestClaw Desktop - OpenClaw GUI',
 
-  // ── 文件系统路径 ─────────────────────────────────────────────────────────────
-  settingsDirName: 'EasiestClaw-desktop',            // ~/.openclaw/<settingsDirName>/settings.json
-
   // ── Windows 防火墙 ───────────────────────────────────────────────────────────
   firewallRuleName: 'EasiestClaw',                   // Windows Defender 规则名称
 }

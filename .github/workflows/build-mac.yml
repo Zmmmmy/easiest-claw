@@ -103,8 +103,8 @@ jobs:
         id: release_meta
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          node scripts/extract-release-notes.mjs $VERSION > /tmp/release-notes.md
-          cat /tmp/release-notes.md
+          node scripts/extract-release-notes.mjs $VERSION > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
           # 主版本号为 0 或包含 - 的版本视为测试版
           if [[ "$VERSION" =~ ^0\. ]] || [[ "$VERSION" =~ - ]]; then
             echo "is_prerelease=true" >> $GITHUB_OUTPUT
@@ -119,7 +119,7 @@ jobs:
           files: |
             dist/*.dmg
             dist/latest-mac.yml
-          body_path: /tmp/release-notes.md
+          body_path: ${{ runner.temp }}/release-notes.md
           draft: false
           prerelease: ${{ steps.release_meta.outputs.is_prerelease }}
         env:

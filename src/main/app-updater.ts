@@ -16,7 +16,7 @@
  */
 
 import type { IpcMain, BrowserWindow } from 'electron'
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { logger } from './lib/logger'
 
@@ -121,5 +121,16 @@ export function registerAppUpdaterHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('app:install-update', () => {
     autoUpdater.quitAndInstall()
+  })
+
+  ipcMain.handle('app:paths', () => ({
+    appPath: app.isPackaged ? process.resourcesPath : app.getAppPath(),
+    userData: app.getPath('userData'),
+    logs: app.getPath('logs'),
+  }))
+
+  ipcMain.handle('app:open-path', async (_event, targetPath: string) => {
+    const err = await shell.openPath(targetPath)
+    if (err) logger.warn(`[AppPaths] shell.openPath failed: ${err}`)
   })
 }

@@ -1,7 +1,7 @@
 
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Brain, Check, Languages, Info, RefreshCw, Download, CheckCircle2, Loader2 } from "lucide-react"
+import { ArrowLeft, Brain, Check, Languages, Info, RefreshCw, Download, CheckCircle2, Loader2, FolderOpen, Copy, CheckCheck } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -174,10 +174,19 @@ type UpdateState =
 function AboutPanel() {
   const [updateState, setUpdateState] = useState<UpdateState>({ status: 'idle' })
   const [appVersion, setAppVersion] = useState<string>('…')
+  const [paths, setPaths] = useState<{ appPath: string; userData: string; logs: string } | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
 
   useEffect(() => {
     window.ipc.appVersion().then(setAppVersion)
+    window.ipc.appPaths().then(setPaths)
   }, [])
+
+  const handleCopy = (key: string, value: string) => {
+    navigator.clipboard.writeText(value)
+    setCopied(key)
+    setTimeout(() => setCopied(null), 2000)
+  }
 
   const handleCheckUpdate = async () => {
     setUpdateState({ status: 'checking' })
@@ -211,7 +220,47 @@ function AboutPanel() {
         </div>
       </div>
 
-      {/* Update section */}
+      {/* File paths */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium">文件目录</h3>
+        <div className="space-y-2">
+          {[
+            { key: 'appPath', label: '应用文件夹', value: paths?.appPath },
+            { key: 'userData', label: '数据文件夹', value: paths?.userData },
+            { key: 'logs', label: '日志文件夹', value: paths?.logs },
+          ].map(({ key, label, value }) => (
+            <div key={key} className="rounded-lg border bg-muted/20 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-xs text-muted-foreground">{label}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => value && handleCopy(key, value)}
+                    disabled={!value}
+                    className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-40"
+                    title="复制路径"
+                  >
+                    {copied === key
+                      ? <CheckCheck className="h-3.5 w-3.5 text-green-500" />
+                      : <Copy className="h-3.5 w-3.5" />
+                    }
+                  </button>
+                  <button
+                    onClick={() => value && window.ipc.appOpenPath(value)}
+                    disabled={!value}
+                    className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground disabled:opacity-40"
+                    title="在文件管理器中打开"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs font-mono text-foreground/80 break-all leading-relaxed">
+                {value ?? <span className="text-muted-foreground/50 animate-pulse">加载中…</span>}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
       <div className="space-y-3">
         <h3 className="text-sm font-medium">软件更新</h3>
 

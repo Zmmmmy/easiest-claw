@@ -224,6 +224,10 @@ const ipcApi = {
     appUpdateCallbacks.add(callback)
     return () => appUpdateCallbacks.delete(callback)
   },
+  appPaths: (): Promise<{ appPath: string; userData: string; logs: string }> =>
+    ipcRenderer.invoke('app:paths'),
+  appOpenPath: (targetPath: string): Promise<void> =>
+    ipcRenderer.invoke('app:open-path', targetPath),
 
   // ── Window controls (frameless) ───────────────────────────────────────────
   windowMinimize: () => ipcRenderer.send('window:minimize'),

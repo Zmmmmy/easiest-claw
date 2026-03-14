@@ -10,19 +10,20 @@
 
 ## [Unreleased]
 
-> 在这里写下一个版本的更新内容，发版时会自动提取为 Release 正文。
-
 ### 新增
 
--
+- 使用 Dexie.js (IndexedDB) 替换 localStorage 图片附件缓存，存储上限从 5-10MB 提升至 GB 级，重启应用后图片可恢复
 
 ### 修复
 
--
+- 修复 DM 对话中发送的图片重启后消失的问题（OpenClaw 128KB 限制导致历史记录中图片被剥离）
+- 修复图片附件添加到输入框时文本区域被压缩至极小高度的问题
+- 修复 OpenClaw 升级失败时错误日志消失、无法排查原因的问题；镜像源失败时自动 fallback 到官方 npm 源
+- 修复 NSIS 升级安装时弹出用户数据清理确认框的问题
 
 ### 变更
 
--
+- macOS 构建移除 Intel x64（macOS 13）版本，仅保留 Apple Silicon (arm64)
 
 ---
 

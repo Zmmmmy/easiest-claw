@@ -20,6 +20,7 @@ interface MessageInputProps {
   members?: { id: string; name: string }[]
   onMention?: (memberId: string) => void
   panelHeight?: number
+  onAttachmentCountChange?: (count: number) => void
 }
 
 const emojis = ["😀", "😂", "😍", "🤔", "👍", "👌", "🙏", "🎉", "❤️", "🚀", "💡", "🔥", "✅", "🎯", "📝", "⚡", "💪", "🤝"]
@@ -39,7 +40,7 @@ interface PendingMessage {
 
 const MAX_QUEUE_SIZE = 3
 
-export function MessageInput({ onSend, onNewSession, onAbort, isGenerating, showMention, members, panelHeight }: MessageInputProps) {
+export function MessageInput({ onSend, onNewSession, onAbort, isGenerating, showMention, members, panelHeight, onAttachmentCountChange }: MessageInputProps) {
   const { t } = useI18n()
   const [content, setContent] = useState("")
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
@@ -123,6 +124,12 @@ export function MessageInput({ onSend, onNewSession, onAbort, isGenerating, show
     el.style.height = "auto"
     el.style.height = `${el.scrollHeight}px`
   }, [content, panelHeight])
+
+  // 附件数量变化时通知父组件，以便父组件自动扩大面板高度
+  useEffect(() => {
+    onAttachmentCountChange?.(attachments.length)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachments.length])
 
   const handleSend = useCallback(() => {
     if (!hasContent) return

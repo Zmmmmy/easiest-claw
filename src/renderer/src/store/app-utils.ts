@@ -21,7 +21,10 @@ export const extractTextContent = (content: unknown): string => {
 
 /**
  * 从 OpenClaw 历史消息 content 数组中提取图片块，转为 ChatAttachment。
- * 格式：[{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: "..." } }]
+ * 支持以下格式：
+ * 1. Anthropic:  { type: "image", source: { type: "base64", media_type, data } }
+ * 2. OpenAI:     { type: "image_url", image_url: { url: "data:..." } }
+ * 3. 我们的发送格式（OpenClaw 原样存储时）: { type: "image", mimeType, content }
  */
 export const extractImageAttachments = (content: unknown): ChatAttachment[] => {
   if (!Array.isArray(content)) return []
@@ -29,17 +32,35 @@ export const extractImageAttachments = (content: unknown): ChatAttachment[] => {
   for (const part of content) {
     if (!part || typeof part !== "object") continue
     const rec = part as Record<string, unknown>
-    if (rec.type !== "image") continue
-    const source = rec.source as Record<string, unknown> | undefined
-    if (!source || source.type !== "base64") continue
-    const mediaType = typeof source.media_type === "string" ? source.media_type : ""
-    const data = typeof source.data === "string" ? source.data : ""
-    if (!mediaType || !data) continue
-    results.push({
-      id: uniqueId("hist-img"),
-      dataUrl: `data:${mediaType};base64,${data}`,
-      mimeType: mediaType,
-    })
+
+    if (rec.type === "image") {
+      // Anthropic format
+      const source = rec.source as Record<string, unknown> | undefined
+      if (source?.type === "base64") {
+        const mediaType = typeof source.media_type === "string" ? source.media_type : ""
+        const data = typeof source.data === "string" ? source.data : ""
+        if (mediaType && data) {
+          results.push({ id: uniqueId("hist-img"), dataUrl: `data:${mediaType};base64,${data}`, mimeType: mediaType })
+        }
+        continue
+      }
+      // Our send format: { type: "image", mimeType, content }
+      if (typeof rec.mimeType === "string" && typeof rec.content === "string" && rec.content) {
+        results.push({ id: uniqueId("hist-img"), dataUrl: `data:${rec.mimeType};base64,${rec.content}`, mimeType: rec.mimeType })
+      }
+      continue
+    }
+
+    // OpenAI format: { type: "image_url", image_url: { url: "data:..." } }
+    if (rec.type === "image_url") {
+      const imageUrl = rec.image_url as Record<string, unknown> | undefined
+      const url = typeof imageUrl?.url === "string" ? imageUrl.url : ""
+      if (url.startsWith("data:")) {
+        const mimeType = /^data:([^;]+);/.exec(url)?.[1] ?? "image/jpeg"
+        results.push({ id: uniqueId("hist-img"), dataUrl: url, mimeType })
+      }
+      continue
+    }
   }
   return results
 }

@@ -69,6 +69,7 @@ export function ChatWindow() {
 
   // ── 输入区高度拖拽 ──────────────────────────────────────────────────────────
   const MIN_INPUT_HEIGHT = 88
+  const MIN_INPUT_HEIGHT_WITH_ATTACHMENT = 210
   const DEFAULT_INPUT_HEIGHT = 140
   const [panelHeight, setPanelHeight] = useState(DEFAULT_INPUT_HEIGHT)
   // 用 ref 跟踪最新值，避免 useCallback([], ...) 的陈旧闭包问题
@@ -291,6 +292,11 @@ export function ChatWindow() {
           showMention={isGroup}
           members={members}
           panelHeight={panelHeight}
+          onAttachmentCountChange={(count) => {
+            if (count > 0) {
+              setPanelHeight((prev) => Math.max(prev, MIN_INPUT_HEIGHT_WITH_ATTACHMENT))
+            }
+          }}
         />
       </div>
 

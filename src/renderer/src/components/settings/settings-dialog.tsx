@@ -192,8 +192,8 @@ function AboutPanel() {
     setUpdateState({ status: 'checking' })
     const unsubscribe = window.ipc.onAppUpdateStatus((s) => {
       if (s.status === 'available' && s.version) {
+        // 不在这里 unsubscribe，继续监听后续的 downloading / downloaded 事件
         setUpdateState({ status: 'available', version: s.version })
-        unsubscribe()
       } else if (s.status === 'not-available') {
         setUpdateState({ status: 'not-available' })
         unsubscribe()

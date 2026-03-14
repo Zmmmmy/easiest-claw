@@ -19,20 +19,13 @@ export function useAppUpdate(): void {
         toast.info(`发现新版本 v${s.version}`, {
           id: UPDATE_TOAST_ID,
           duration: Infinity,
-          description: '点击下载，下载完成后重启即可更新',
-          action: {
-            label: '立即下载',
-            onClick: () => window.ipc.appDownloadUpdate(),
-          },
+          description: '前往设置 → 关于 下载安装',
         })
       }
 
       if (s.status === 'downloading') {
-        const pct = s.progress ?? 0
-        toast.loading(`正在下载更新... ${pct}%`, {
-          id: UPDATE_TOAST_ID,
-          duration: Infinity,
-        })
+        // 下载进度在设置 → 关于页面显示，toast 侧静默关闭
+        toast.dismiss(UPDATE_TOAST_ID)
       }
 
       if (s.status === 'downloaded' && s.version) {

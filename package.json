@@ -1,6 +1,6 @@
 {
   "name": "easiest-claw-desktop",
-  "version": "0.0.5-beta",
+  "version": "0.0.6-beta",
   "description": "EasiestClaw Desktop - OpenClaw GUI",
   "main": "./out/main/index.js",
   "private": true,

@@ -18,6 +18,18 @@
 
 ### 修复
 
+-
+
+### 变更
+
+-
+
+---
+
+## [0.0.22-beta] - 2026-03-15
+
+### 修复
+
 - 修复 `openclaw-init.ts` 解压 worker 的目标路径错误：worker 接收的 `destDir` 仍为 `resourcesPath` 而非 `extractRoot`（userData），导致 zip 解压到安装目录而非用户数据目录
 
 ### 变更
@@ -26,6 +38,8 @@
 - 升级步骤从 7 步精简为 5 步（下载 → 安装 → 停止 → 迁移 → 启动），前端进度展示同步更新
 - 提取 `src/main/lib/openclaw-paths.ts` 统一管理 OpenClaw 路径查找和共享常量，消除三处重复路径逻辑
 - 修复 `ensureOpenclawDependencies` 中使用同步 I/O（`readFileSync`/`writeFileSync`）阻塞主进程事件循环的问题
+
+---
 
 ---
 

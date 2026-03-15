@@ -18,7 +18,8 @@
 
 ### 修复
 
--
+- 修复 OpenClaw 升级后新增依赖（如 @modelcontextprotocol/sdk）缺失导致 Gateway 启动报 ERR_MODULE_NOT_FOUND：升级时用内置 npm 补装新依赖，--omit=optional 跳过 libsignal 等 git URL 依赖
+- 修复 Release 正文中出现空的「新增」「变更」节：发版和 CI 提取脚本现在自动过滤只有占位符 `-` 的空小节
 
 ### 变更
 

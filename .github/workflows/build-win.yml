@@ -72,7 +72,7 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $zip
           Expand-Archive -Path $zip -DestinationPath $dest -Force
           Remove-Item $zip
-          Write-Host "✓ MinGit $GIT_VER bundled"
+          Write-Host "MinGit $GIT_VER bundled OK"
 
       - name: Bundle OpenClaw
         run: node scripts/bundle-openclaw.mjs

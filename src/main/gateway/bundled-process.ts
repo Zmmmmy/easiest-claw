@@ -46,6 +46,69 @@ export function getBundledNodeBin(): string {
     : join(nodeDir, 'node')
 }
 
+export function getBundledNpmBin(): string {
+  const nodeDir = app.isPackaged
+    ? join(process.resourcesPath, 'node')
+    : join(app.getAppPath(), 'resources', 'node')
+  return process.platform === 'win32'
+    ? join(nodeDir, 'npm.cmd')
+    : join(nodeDir, 'npm')
+}
+
+/**
+ * 确保 openclaw 的直接依赖已安装。
+ * 启动前调用，修复"程序内升级后 node_modules 未补全"导致的 ERR_MODULE_NOT_FOUND。
+ * --omit=optional/peer 跳过 libsignal 等 git URL 依赖（已作为 stub 存在）。
+ */
+export async function ensureOpenclawDependencies(openclawDir: string): Promise<void> {
+  const pkgPath = join(openclawDir, 'package.json')
+  if (!existsSync(pkgPath)) return
+
+  let pkg: Record<string, unknown>
+  try {
+    pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as Record<string, unknown>
+  } catch { return }
+
+  const deps = pkg.dependencies as Record<string, string> | undefined
+  if (!deps) return
+
+  // 检查是否有依赖缺失（只检 dependencies，不含 optional/peer）
+  const missing = Object.keys(deps).filter(name => !existsSync(join(openclawDir, 'node_modules', name)))
+  if (missing.length === 0) return
+
+  logger.info(`[AutoSpawn] 检测到缺失依赖 (${missing.length} 个)，正在补全: ${missing.slice(0, 5).join(', ')}...`)
+  console.log(`[AutoSpawn] 检测到缺失依赖 (${missing.length} 个)，正在补全...`)
+
+  const npmBin = getBundledNpmBin()
+  const nodeDir = join(npmBin, '..')
+  const args = ['install', '--omit=optional', '--omit=peer', '--omit=dev', '--ignore-scripts', '--prefer-offline']
+
+  await new Promise<void>((resolve) => {
+    const child = spawn(npmBin, args, {
+      cwd: openclawDir,
+      windowsHide: true,
+      shell: process.platform === 'win32',
+      env: { ...process.env, PATH: `${nodeDir}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}` },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    child.stdout?.on('data', (d: Buffer) => logger.info(`[npm] ${d.toString().trim()}`))
+    child.stderr?.on('data', (d: Buffer) => logger.warn(`[npm] ${d.toString().trim()}`))
+    child.on('close', (code) => {
+      if (code === 0) {
+        logger.info('[AutoSpawn] 依赖补全完成')
+        console.log('[AutoSpawn] 依赖补全完成')
+      } else {
+        logger.warn(`[AutoSpawn] npm install 退出 code=${code}，继续启动`)
+      }
+      resolve()
+    })
+    child.on('error', (e) => {
+      logger.warn(`[AutoSpawn] npm install 失败: ${e.message}，继续启动`)
+      resolve()
+    })
+  })
+}
+
 // ── Gateway config ─────────────────────────────────────────────────────────────
 export function readGatewayToken(): string | null {
   try {
@@ -315,6 +378,10 @@ export async function autoSpawnBundledOpenclaw(): Promise<void> {
 
   logger.info('[AutoSpawn] 正在 fork 内置 OpenClaw Gateway...')
   console.log('[AutoSpawn] 正在 fork 内置 OpenClaw Gateway...')
+
+  // fork 前先确保依赖完整（修复程序内升级后 node_modules 未补全的问题）
+  await ensureOpenclawDependencies(openclawDir)
+
   forkOpenclawGateway(entryScript, openclawDir, token)
 
   logger.info('[AutoSpawn] 等待 Gateway 就绪（最长 90s）...')

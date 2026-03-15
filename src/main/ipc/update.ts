@@ -6,7 +6,7 @@ import { join, dirname } from 'path'
 import os from 'os'
 import https from 'https'
 import { spawn } from 'child_process'
-import { stopGatewayProcess, restartBundledGateway, getBundledOpenclawVersion, waitForPortClosed } from '../gateway/bundled-process'
+import { stopGatewayProcess, restartBundledGateway, getBundledOpenclawVersion, waitForPortClosed, getBundledNpmBin } from '../gateway/bundled-process'
 
 const REGISTRY = 'https://registry.npmmirror.com'
 const REGISTRY_FALLBACK = 'https://registry.npmjs.org'
@@ -75,19 +75,10 @@ function getOpenclawDir(): string | null {
   return null
 }
 
-function getBundledNpmBin(): string {
-  const nodeDir = app.isPackaged
-    ? join(process.resourcesPath, 'node')
-    : join(app.getAppPath(), 'resources', 'node')
-  return process.platform === 'win32'
-    ? join(nodeDir, 'npm.cmd')
-    : join(nodeDir, 'npm')
-}
-
 /** 用内置 npm 安装新增依赖（跳过 optional/peer/dev，避免触碰 git URL 依赖） */
 async function runNpmInstall(cwd: string, send: ProgressSender): Promise<boolean> {
   const npmBin = getBundledNpmBin()
-  const nodeDir = dirname(getBundledNpmBin())
+  const nodeDir = dirname(npmBin)
   const args = ['install', '--omit=optional', '--omit=peer', '--omit=dev', '--ignore-scripts', '--prefer-offline']
   return new Promise<boolean>((resolve) => {
     const child = spawn(npmBin, args, {

@@ -12,17 +12,9 @@
 
 > 在这里写下一个版本的更新内容，发版时会自动提取为 Release 正文。
 
-### 新增
-
--
-
 ### 修复
 
--
-
-### 变更
-
--
+- 修复升级 EasiestClaw 时每次都重新解压 OpenClaw 的问题：将解压目标从安装目录（resources/openclaw/）改为用户数据目录（AppData/EasiestClaw/openclaw/），NSIS 升级安装不会清除用户数据目录，同版本 OpenClaw 只需首次安装时解压一次
 
 ---
 

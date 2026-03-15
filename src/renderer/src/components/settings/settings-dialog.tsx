@@ -1,12 +1,13 @@
 
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Brain, Check, Languages, Info, RefreshCw, Download, CheckCircle2, Loader2, FolderOpen, Copy, CheckCheck } from "lucide-react"
+import { ArrowLeft, Brain, Check, Languages, Info, Server, RefreshCw, Download, CheckCircle2, Loader2, FolderOpen, Copy, CheckCheck } from "lucide-react"
 import {
   Dialog,
   DialogContent,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Separator } from "@/components/ui/separator"
 import {
   LOCALE_OPTIONS,
   getLocaleLabel,
@@ -15,19 +16,22 @@ import {
 } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { ModelConfigPanel } from "./model-config"
+import { GatewayConfigPanel } from "./gateway-config-panel"
+import { OpenclawUpdatePanel } from "./openclaw-update-panel"
 
 interface SettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-type SettingsSection = "models" | "language" | "about"
+type SettingsSection = "models" | "gateway" | "language" | "about"
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { t } = useI18n()
   const [activeSection, setActiveSection] = useState<SettingsSection>("models")
-  const navItems: { id: SettingsSection; label: string; icon: typeof Brain | typeof Languages | typeof Info }[] = [
+  const navItems: { id: SettingsSection; label: string; icon: typeof Brain | typeof Languages | typeof Info | typeof Server }[] = [
     { id: "models", label: t("settings.sections.models"), icon: Brain },
+    { id: "gateway", label: t("settings.sections.gateway"), icon: Server },
     { id: "language", label: t("settings.sections.language"), icon: Languages },
     { id: "about", label: "关于", icon: Info },
   ]
@@ -85,11 +89,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   {t("settings.descriptions.language")}
                 </p>
               )}
+              {activeSection === "gateway" && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {t("settings.descriptions.gateway")}
+                </p>
+              )}
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto">
               <div className="px-5 py-4">
                 {activeSection === "models" && <ModelConfigPanel />}
+                {activeSection === "gateway" && <GatewayConfigPanel />}
                 {activeSection === "language" && <LanguageSettingsPanel />}
                 {activeSection === "about" && <AboutPanel />}
               </div>
@@ -324,6 +334,10 @@ function AboutPanel() {
           </div>
         )}
       </div>
+
+      {/* OpenClaw 更新 */}
+      <Separator />
+      <OpenclawUpdatePanel />
     </div>
   )
 }

@@ -38,11 +38,13 @@
     "backToApp": "EasiestClaw に戻る",
     "sections": {
       "models": "モデル設定",
+      "gateway": "ゲートウェイ",
       "language": "言語",
       "community": "コミュニティ"
     },
     "descriptions": {
       "models": "AI プロバイダーを追加し、利用可能なモデルを設定します",
+      "gateway": "OpenClaw ゲートウェイの接続先とアクセストークンを設定",
       "language": "既定ではブラウザの言語に従い、手動で切り替えることもできます",
       "community": "公式WeChatグループに参加して最新情報やサポートを受けましょう"
     },

@@ -197,7 +197,7 @@ export const registerEnvHandlers = (ipcMain: IpcMain): void => {
     const { openclawDir, entryScript } = bundledOc
 
     const nodeBin = getBundledNodeBin()
-    console.log('[ResolveConflict] 正在停止外部 Gateway...')
+    console.log('[ResolveConflict] stopping external gateway...')
     await new Promise<void>((resolve) => {
       const child = spawn(nodeBin, [entryScript, 'gateway', 'stop'], {
         cwd: openclawDir,
@@ -210,7 +210,7 @@ export const registerEnvHandlers = (ipcMain: IpcMain): void => {
 
     const portClosed = await waitForPortClosed(GATEWAY_PORT, 10_000)
     if (!portClosed) {
-      console.warn('[ResolveConflict] 端口未能在 10s 内释放，继续尝试启动...')
+      console.warn('[ResolveConflict] port not released within 10s, retrying...')
       await new Promise(r => setTimeout(r, 2000))
     }
 
@@ -226,9 +226,9 @@ export const registerEnvHandlers = (ipcMain: IpcMain): void => {
     const ready = await checkPortOpen(GATEWAY_PORT, 30_000)
     if (ready) {
       setGatewaySource('bundled')
-      console.log('[ResolveConflict] 内置 Gateway 已就绪')
+      console.log('[ResolveConflict] bundled gateway ready')
     } else {
-      console.warn('[ResolveConflict] 内置 Gateway 30s 内未就绪')
+      console.warn('[ResolveConflict] bundled gateway not ready within 30s')
     }
 
     await restartRuntime()

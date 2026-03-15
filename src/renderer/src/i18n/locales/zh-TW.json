@@ -38,11 +38,13 @@
     "backToApp": "返回",
     "sections": {
       "models": "模型設定",
+      "gateway": "閘道器",
       "language": "語言",
       "community": "社群"
     },
     "descriptions": {
       "models": "添加 AI 模型服務商，配置可用模型",
+      "gateway": "設定 OpenClaw 閘道器連線位址和存取權杖",
       "language": "預設跟隨瀏覽器語言，也可以手動切換",
       "community": "加入官方微信群，獲取最新動態和技術支援"
     },

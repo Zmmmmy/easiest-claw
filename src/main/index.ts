@@ -138,18 +138,16 @@ app.whenReady().then(async () => {
   // Gateway 日志缓冲（供渲染层切换页面回来时恢复日志面板）
   ipcMain.handle('gateway:logs-get', () => getGatewayLogBuffer())
 
-  // Windows: 先等防火墙规则添加完毕，再启动 Gateway。
-  // 若两者并行，Gateway 抢先监听端口会触发系统防火墙弹窗，阻塞用户操作。
-  // ensureFirewallRule 内部有 5s 超时保护，不会无限阻塞。
-  logger.info('[Startup] ensureFirewallRule — start')
-  await ensureFirewallRule()
-  logger.info('[Startup] ensureFirewallRule — done')
-
-  // 首次启动：解压 openclaw.zip → resources/openclaw/（仅打包版本执行，dev 自动跳过）
-  // 在 autoSpawnBundledOpenclaw 之前完成，确保解压完毕才启动 Gateway。
-  logger.info('[Startup] extractOpenClawIfNeeded — start')
-  await extractOpenClawIfNeeded(mainWindow, process.resourcesPath)
-  logger.info('[Startup] extractOpenClawIfNeeded — done')
+  // 防火墙规则 + 解压并行执行：两者互不依赖，无需串行等待。
+  // 防火墙规则需在 gateway 监听端口前完成（否则触发弹窗），
+  // 解压需在 autoSpawnBundledOpenclaw 前完成（依赖解压产物）。
+  // Promise.all 保证两者都完成后才继续。
+  logger.info('[Startup] ensureFirewallRule + extractOpenClawIfNeeded — start (parallel)')
+  await Promise.all([
+    ensureFirewallRule(),
+    extractOpenClawIfNeeded(mainWindow, process.resourcesPath),
+  ])
+  logger.info('[Startup] ensureFirewallRule + extractOpenClawIfNeeded — done')
 
   // Gateway 进程日志 → 渲染进程（onboarding 启动日志面板）
   addGatewayLogListener((line, isError) => {
@@ -158,17 +156,15 @@ app.whenReady().then(async () => {
     }
   })
 
-  // Spawn bundled openclaw in background — the function synchronously calls
-  // patchSettings() before its first `await`, so settings are ready immediately.
+  // Spawn bundled openclaw — await so gateway is ready before runtime connects.
+  // patchSettings() is called synchronously inside before the first await.
   logger.info('[Startup] autoSpawnBundledOpenclaw — start')
-  autoSpawnBundledOpenclaw().catch((e) => {
+  await autoSpawnBundledOpenclaw().catch((e) => {
     logger.error(`[AutoSpawn] fatal error: ${e}`)
     console.error('[AutoSpawn] error:', e)
   })
 
-  // Start runtime — pass device identity path so the adapter can authenticate
-  // with Ed25519 device identity (3.12+), with automatic fallback to token-only
-  // for older gateway versions that don't send a nonce in connect.challenge.
+  // Start runtime AFTER gateway is ready — avoids ECONNREFUSED retry spam.
   logger.info('[Startup] startRuntime — start')
   startRuntime((event) => {
     if (is.dev) {

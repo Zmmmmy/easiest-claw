@@ -90,7 +90,7 @@ export async function extractOpenClawIfNeeded(
 
   // dev 模式或未打包时不存在 zip，直接跳过
   if (zipPaths.length === 0) {
-    logger.info('[Extract] 未找到 zip 文件（dev 模式或首次安装前），跳过解压')
+    logger.info('[Extract] no zip files found (dev mode or pre-install), skipping')
     _extractPhase = 'skipped'
     return
   }
@@ -126,12 +126,12 @@ export async function extractOpenClawIfNeeded(
     try {
       const installedVersion = readFileSync(markerPath, 'utf8').trim()
       if (installedVersion === currentVersion) {
-        logger.info(`[Extract] 已解压且版本一致 (${currentVersion})，跳过`)
+        logger.info(`[Extract] already extracted, version matches (${currentVersion}), skipping`)
         _extractPhase = 'skipped'
         return
       }
       // 版本不同：已安装旧版，询问用户是否升级
-      logger.info(`[Extract] 检测到 OpenClaw 版本变化: ${installedVersion} → ${currentVersion}，等待用户决定`)
+      logger.info(`[Extract] version change detected: ${installedVersion} -> ${currentVersion}, awaiting user decision`)
       _upgradeFrom = installedVersion
       _upgradeTo = currentVersion
       _extractPhase = 'upgrade-available'
@@ -139,17 +139,17 @@ export async function extractOpenClawIfNeeded(
         _pendingUpgrade = { resolve }
       })
       if (!confirmed) {
-        logger.info('[Extract] 用户跳过升级，继续使用已安装版本')
+        logger.info('[Extract] user skipped upgrade, keeping installed version')
         _extractPhase = 'skipped'
         return
       }
-      logger.info('[Extract] 用户确认升级，开始解压')
+      logger.info('[Extract] user confirmed upgrade, extracting')
     } catch {
       // 读取标记文件失败：视为首次安装，直接解压
     }
   }
 
-  logger.info(`[Extract] 开始解压 openclaw (${zipPaths.length} 个 zip)，目标版本: ${currentVersion}`)
+  logger.info(`[Extract] extracting openclaw (${zipPaths.length} zips), target version: ${currentVersion}`)
   _extractPhase = 'extracting'
   _extractPercent = 0
 
@@ -192,21 +192,21 @@ export async function extractOpenClawIfNeeded(
             const percent = totalFiles > 0 ? Math.round((totalExtracted / totalFiles) * 100) : 0
             sendProgress(Math.min(percent, 99), msg.file ?? '')
           } else if (msg.type === 'done') {
-            logger.info(`[Extract] Worker 完成: ${zipPath}`)
+            logger.info(`[Extract] worker done: ${zipPath}`)
             resolve()
           } else if (msg.type === 'error') {
-            logger.error(`[Extract] Worker 错误 (${zipPath}): ${msg.message}`)
+            logger.error(`[Extract] worker error (${zipPath}): ${msg.message}`)
             reject(new Error(msg.message))
           }
         })
 
         worker.on('error', (err) => {
-          logger.error(`[Extract] Worker 异常 (${zipPath}): ${err}`)
+          logger.error(`[Extract] worker exception (${zipPath}): ${err}`)
           reject(err)
         })
         worker.on('exit', (code) => {
           if (code !== 0) {
-            logger.error(`[Extract] Worker 异常退出 code=${code} (${zipPath})`)
+            logger.error(`[Extract] worker exited abnormally code=${code} (${zipPath})`)
             reject(new Error(`Worker exited with code ${code}`))
           }
         })
@@ -218,7 +218,7 @@ export async function extractOpenClawIfNeeded(
   // 写入版本标志到 userData（与安装目录分离，更新安装不会删掉它）
   writeFileSync(markerPath, currentVersion)
   sendProgress(100, '')
-  logger.info(`[Extract] 解压完成，已写入版本标志 ${currentVersion}`)
+  logger.info(`[Extract] extraction complete, version marker written: ${currentVersion}`)
 }
 
 
@@ -250,7 +250,7 @@ export function sanitizeOpenClawConfig(): void {
   if (toolsModified) {
     config = { ...config, tools }
     modified = true
-    console.log('[Sanitize] 已设置 tools.profile=full, tools.sessions.visibility=all')
+    console.log('[Sanitize] set tools.profile=full, tools.sessions.visibility=all')
   }
 
   // ── commands.restart = true（优雅重载支持）──────────────────────────────────
@@ -258,7 +258,7 @@ export function sanitizeOpenClawConfig(): void {
   if (commands.restart !== true) {
     config = { ...config, commands: { ...commands, restart: true } }
     modified = true
-    console.log('[Sanitize] 已启用 commands.restart')
+    console.log('[Sanitize] enabled commands.restart')
   }
 
   // ── skills: 删除无效根键 ─────────────────────────────────────────────────────
@@ -270,7 +270,7 @@ export function sanitizeOpenClawConfig(): void {
       if (key in skillsObj) {
         delete skillsObj[key]
         skillsModified = true
-        console.log(`[Sanitize] 移除无效字段 skills.${key}`)
+        console.log(`[Sanitize] removed invalid field skills.${key}`)
       }
     }
     if (skillsModified) {
@@ -284,7 +284,7 @@ export function sanitizeOpenClawConfig(): void {
     const { controlUi: _removed, ...rest } = config
     config = rest
     modified = true
-    console.log('[Sanitize] 移除无效根键 controlUi')
+    console.log('[Sanitize] removed invalid root key controlUi')
   }
 
   // ── agents.list[*] 中的无效字段（如 runtime）────────────────────────────────
@@ -303,7 +303,7 @@ export function sanitizeOpenClawConfig(): void {
         const cleaned = { ...agentObj }
         for (const k of keysToRemove) {
           delete cleaned[k]
-          console.log(`[Sanitize] 移除 agents.list 中的无效字段: ${k}`)
+          console.log(`[Sanitize] removed invalid field in agents.list: ${k}`)
         }
         return cleaned
       })
@@ -316,6 +316,6 @@ export function sanitizeOpenClawConfig(): void {
 
   if (modified) {
     writeOpenclawConfig(config)
-    console.log('[Sanitize] openclaw.json 清理完成')
+    console.log('[Sanitize] openclaw.json cleanup done')
   }
 }

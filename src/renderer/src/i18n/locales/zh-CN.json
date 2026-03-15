@@ -41,11 +41,13 @@
     "backToApp": "返回",
     "sections": {
       "models": "模型配置",
+      "gateway": "网关",
       "language": "语言",
       "community": "社区"
     },
     "descriptions": {
       "models": "添加 AI 模型服务商，配置可用模型",
+      "gateway": "配置 OpenClaw 网关连接地址和访问凭证",
       "language": "默认跟随浏览器语言，也可以手动切换",
       "community": "加入官方微信群，获取最新动态和技术支持"
     },

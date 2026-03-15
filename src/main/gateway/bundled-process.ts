@@ -58,8 +58,8 @@ export async function ensureOpenclawDependencies(openclawDir: string): Promise<v
 
   if (installedVersion === currentVersion) return // 版本未变，跳过
 
-  logger.info(`[AutoSpawn] openclaw 版本变化（${installedVersion ?? '无'} → ${currentVersion ?? '?'}），正在补全依赖...`)
-  console.log(`[AutoSpawn] openclaw 版本变化，正在补全依赖...`)
+  logger.info(`[AutoSpawn] openclaw version changed (${installedVersion ?? 'none'} -> ${currentVersion ?? '?'}), installing deps...`)
+  console.log('[AutoSpawn] version changed, installing deps...')
 
   const npmBin = getBundledNpmBin()
   const nodeDir = join(npmBin, '..')
@@ -77,15 +77,15 @@ export async function ensureOpenclawDependencies(openclawDir: string): Promise<v
     child.stderr?.on('data', (d: Buffer) => logger.warn(`[npm] ${d.toString().trim()}`))
     child.on('close', (code) => {
       if (code === 0) {
-        logger.info('[AutoSpawn] 依赖补全完成')
-        console.log('[AutoSpawn] 依赖补全完成')
+        logger.info('[AutoSpawn] deps install done')
+        console.log('[AutoSpawn] deps install done')
       } else {
-        logger.warn(`[AutoSpawn] npm install 退出 code=${code}，继续启动`)
+        logger.warn(`[AutoSpawn] npm install exited code=${code}, continuing`)
       }
       resolve(code === 0)
     })
     child.on('error', (e) => {
-      logger.warn(`[AutoSpawn] npm install 失败: ${e.message}，继续启动`)
+      logger.warn(`[AutoSpawn] npm install failed: ${e.message}, continuing`)
       resolve(false)
     })
   })
@@ -184,6 +184,16 @@ export async function waitForGatewayReady(maxMs: number): Promise<boolean> {
   return checkPortOpen(GATEWAY_PORT, maxMs)
 }
 
+/** 单次 TCP 探测：端口是否已打开（不轮询，仅一次连接尝试） */
+export async function checkPortOnce(port: number, timeoutMs = 300): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const socket = net.createConnection({ port, host: '127.0.0.1' })
+    const timer = setTimeout(() => { socket.destroy(); resolve(false) }, timeoutMs)
+    socket.once('connect', () => { clearTimeout(timer); socket.destroy(); resolve(true) })
+    socket.once('error', () => { clearTimeout(timer); socket.destroy(); resolve(false) })
+  })
+}
+
 // ── Bundled openclaw version ────────────────────────────────────────────────────
 export async function getBundledOpenclawVersion(openclawDir: string): Promise<string | null> {
   try {
@@ -199,6 +209,10 @@ export async function getBundledOpenclawVersion(openclawDir: string): Promise<st
 // ── Gateway process ─────────────────────────────────────────────────────────────
 type GatewayLogListener = (line: string, isError: boolean) => void
 const gatewayLogListeners = new Set<GatewayLogListener>()
+
+// 剥离 ANSI 颜色/控制转义码
+const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g
+function stripAnsi(str: string): string { return str.replace(ANSI_RE, '') }
 
 // 日志缓冲区：保留最近 500 行，供渲染层挂载时初始化日志面板
 const _gatewayLogBuffer: Array<{ line: string; isError: boolean }> = []
@@ -259,13 +273,13 @@ export async function stopGatewayGracefully(timeoutMs = 5000): Promise<void> {
     child.once('exit', onExit)
 
     // Phase 1: SIGTERM / TerminateProcess（Electron utilityProcess.kill()）
-    logger.info(`[Gateway] 发送终止信号 (pid=${pid ?? 'unknown'})`)
+    logger.info(`[Gateway] sending termination signal (pid=${pid ?? 'unknown'})`)
     try { child.kill() } catch {}
 
     // Phase 2: 超时后强制杀死
     const forceKillTimer = setTimeout(() => {
       if (!exited) {
-        logger.warn(`[Gateway] ${timeoutMs}ms 内未退出，强制终止 (pid=${pid ?? 'unknown'})`)
+        logger.warn(`[Gateway] not exited within ${timeoutMs}ms, force-killing (pid=${pid ?? 'unknown'})`)
         console.warn(`[Gateway] force-killing pid=${pid ?? 'unknown'}`)
         if (pid) {
           try {
@@ -289,8 +303,8 @@ export async function stopGatewayGracefully(timeoutMs = 5000): Promise<void> {
 export function forkOpenclawGateway(entryScript: string, openclawDir: string, token: string, force = false): void {
   if (gatewayProcess && !force) return
   if (gatewayProcess && force) {
-    logger.info('[Gateway] 强制重启：终止旧进程...')
-    console.log('[Gateway] 强制重启：终止旧进程...')
+    logger.info('[Gateway] force restart: killing old process...')
+    console.log('[Gateway] force restart: killing old process...')
     try { gatewayProcess.kill() } catch {}
     gatewayProcess = null
   }
@@ -310,9 +324,10 @@ export function forkOpenclawGateway(entryScript: string, openclawDir: string, to
       serviceName: 'OpenClaw Gateway',
     }
   )
-  logger.info(`[Gateway] fork 完成 — entry: ${entryScript}`)
+  logger.info(`[Gateway] fork done — entry: ${entryScript}`)
 
-  const handleLine = (line: string, isError: boolean) => {
+  const handleLine = (raw: string, isError: boolean) => {
+    const line = stripAnsi(raw)
     _gatewayLogBuffer.push({ line, isError })
     if (_gatewayLogBuffer.length > GATEWAY_LOG_BUFFER_MAX) _gatewayLogBuffer.shift()
     console.log(`[Gateway${isError ? ':err' : ''}]`, line)
@@ -329,7 +344,7 @@ export function forkOpenclawGateway(entryScript: string, openclawDir: string, to
     // 如果 gatewayProcess 已被换成新进程（升级重启场景），忽略旧进程的 exit 事件
     if (gatewayProcess !== child) return
 
-    logger.warn(`[Gateway] 进程退出 code=${code}`)
+    logger.warn(`[Gateway] process exited code=${code}`)
     console.log(`[Gateway] process exited (code=${code})`)
     gatewayProcess = null
 
@@ -341,16 +356,16 @@ export function forkOpenclawGateway(entryScript: string, openclawDir: string, to
     if (autoRestartCount < MAX_AUTO_RESTARTS) {
       autoRestartCount++
       lastAutoRestartTime = now
-      logger.info(`[Gateway] 将在 ${AUTO_RESTART_DELAY_MS / 1000}s 后自动重启 (${autoRestartCount}/${MAX_AUTO_RESTARTS})...`)
-      console.log(`[Gateway] 将在 ${AUTO_RESTART_DELAY_MS / 1000}s 后自动重启 (${autoRestartCount}/${MAX_AUTO_RESTARTS})...`)
+      logger.info(`[Gateway] auto-restart in ${AUTO_RESTART_DELAY_MS / 1000}s (${autoRestartCount}/${MAX_AUTO_RESTARTS})...`)
+      console.log(`[Gateway] auto-restart in ${AUTO_RESTART_DELAY_MS / 1000}s (${autoRestartCount}/${MAX_AUTO_RESTARTS})...`)
       setTimeout(() => {
         if (gatewayProcess !== null) return // 已被其他逻辑重启，跳过
-        logger.info(`[Gateway] 自动重启中...`)
+        logger.info('[Gateway] auto-restarting...')
         forkOpenclawGateway(entryScript, openclawDir, token)
       }, AUTO_RESTART_DELAY_MS)
     } else {
-      logger.warn(`[Gateway] 已达最大自动重启次数 (${MAX_AUTO_RESTARTS})，停止自动重启`)
-      console.warn(`[Gateway] 已达最大自动重启次数 (${MAX_AUTO_RESTARTS})，停止自动重启`)
+      logger.warn(`[Gateway] max auto-restart reached (${MAX_AUTO_RESTARTS}), giving up`)
+      console.warn(`[Gateway] max auto-restart reached (${MAX_AUTO_RESTARTS}), giving up`)
     }
   })
 
@@ -389,22 +404,22 @@ export async function restartSystemGateway(): Promise<boolean> {
 export async function autoSpawnBundledOpenclaw(): Promise<void> {
   const bundledOc = getBundledOpenclaw()
   if (!bundledOc) {
-    logger.warn('[AutoSpawn] 内置 openclaw 不存在，跳过')
-    console.log('[AutoSpawn] 内置 openclaw 不存在，跳过')
+    logger.warn('[AutoSpawn] bundled openclaw not found, skipping')
+    console.log('[AutoSpawn] bundled openclaw not found, skipping')
     return
   }
 
   const { openclawDir, entryScript } = bundledOc
-  logger.info(`[AutoSpawn] 内置 openclaw 目录: ${openclawDir}`)
+  logger.info(`[AutoSpawn] bundled openclaw dir: ${openclawDir}`)
 
   let token = readGatewayToken()
   if (!token) {
-    logger.info('[AutoSpawn] 首次启动，生成 token 并写入配置...')
-    console.log('[AutoSpawn] 首次启动，生成 token 并写入配置...')
+    logger.info('[AutoSpawn] first run, generating token...')
+    console.log('[AutoSpawn] first run, generating token...')
     token = crypto.randomBytes(24).toString('hex')
     writeGatewayConfig(token)
-    logger.info('[AutoSpawn] 配置写入完成')
-    console.log('[AutoSpawn] 配置写入完成')
+    logger.info('[AutoSpawn] config written')
+    console.log('[AutoSpawn] config written')
   } else {
     writeGatewayConfig(token)
   }
@@ -412,46 +427,46 @@ export async function autoSpawnBundledOpenclaw(): Promise<void> {
   sanitizeOpenClawConfig()
   patchSettings({ gateway: { url: `ws://localhost:${GATEWAY_PORT}`, token } })
 
-  logger.info('[AutoSpawn] 检查端口 18789 是否已就绪...')
-  const alreadyUp = await waitForGatewayReady(1500)
+  logger.info('[AutoSpawn] probing port 18789...')
+  const alreadyUp = await checkPortOnce(GATEWAY_PORT, 300)
   if (alreadyUp) {
     if (gatewayProcess !== null) {
-      logger.info('[AutoSpawn] 内置 Gateway 已在运行，跳过 fork')
-      console.log('[AutoSpawn] 内置 Gateway 已在运行，跳过 fork')
+      logger.info('[AutoSpawn] bundled gateway already running, skip fork')
+      console.log('[AutoSpawn] bundled gateway already running, skip fork')
       gatewaySource = 'bundled'
     } else {
-      logger.warn('[AutoSpawn] 端口 18789 已被外部进程占用，等待用户决策...')
-      console.log('[AutoSpawn] 端口 18789 已被外部进程占用，等待用户决策...')
+      logger.warn('[AutoSpawn] port 18789 occupied by external process, awaiting user decision...')
+      console.log('[AutoSpawn] port 18789 occupied by external process, awaiting user decision...')
       portConflictPending = true
     }
     return
   }
 
-  logger.info('[AutoSpawn] 正在 fork 内置 OpenClaw Gateway...')
-  console.log('[AutoSpawn] 正在 fork 内置 OpenClaw Gateway...')
+  logger.info('[AutoSpawn] forking bundled OpenClaw Gateway...')
+  console.log('[AutoSpawn] forking bundled OpenClaw Gateway...')
 
   // fork 前先确保依赖完整（修复程序内升级后 node_modules 未补全的问题）
   await ensureOpenclawDependencies(openclawDir)
 
   forkOpenclawGateway(entryScript, openclawDir, token)
 
-  logger.info('[AutoSpawn] 等待 Gateway 就绪（最长 90s）...')
+  logger.info('[AutoSpawn] waiting for gateway ready (max 90s)...')
   const ready = await waitForGatewayReady(90_000)
   if (ready) {
     gatewaySource = 'bundled'
-    logger.info('[AutoSpawn] 内置 Gateway 已就绪')
-    console.log('[AutoSpawn] 内置 Gateway 已就绪')
+    logger.info('[AutoSpawn] bundled gateway ready')
+    console.log('[AutoSpawn] bundled gateway ready')
   } else {
-    logger.warn('[AutoSpawn] 内置 Gateway 90s 内未就绪，继续（连接层将自动重试）')
-    console.warn('[AutoSpawn] 内置 Gateway 90s 内未就绪，继续（连接层将自动重试）')
+    logger.warn('[AutoSpawn] bundled gateway not ready within 90s, continuing (adapter will retry)')
+    console.warn('[AutoSpawn] bundled gateway not ready within 90s, continuing')
   }
 }
 
 export async function restartBundledGateway(): Promise<boolean> {
   const bundledOc = getBundledOpenclaw()
   if (!bundledOc) {
-    logger.warn('[RestartBundled] 找不到内置 openclaw 目录')
-    console.warn('[RestartBundled] 找不到内置 openclaw 目录')
+    logger.warn('[RestartBundled] bundled openclaw dir not found')
+    console.warn('[RestartBundled] bundled openclaw dir not found')
     return false
   }
   const { openclawDir, entryScript } = bundledOc
@@ -469,11 +484,11 @@ export async function restartBundledGateway(): Promise<boolean> {
 
   const ready = await waitForGatewayReady(90_000)
   if (ready) {
-    logger.info('[RestartBundled] Gateway 已就绪')
-    console.log('[RestartBundled] Gateway 已就绪')
+    logger.info('[RestartBundled] gateway ready')
+    console.log('[RestartBundled] gateway ready')
   } else {
-    logger.warn('[RestartBundled] Gateway 90s 内未就绪')
-    console.warn('[RestartBundled] Gateway 90s 内未就绪')
+    logger.warn('[RestartBundled] gateway not ready within 90s')
+    console.warn('[RestartBundled] gateway not ready within 90s')
   }
   return ready
 }

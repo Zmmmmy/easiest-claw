@@ -41,11 +41,13 @@
     "backToApp": "Back to EasiestClaw",
     "sections": {
       "models": "Model Config",
+      "gateway": "Gateway",
       "language": "Language",
       "community": "Community"
     },
     "descriptions": {
       "models": "Add AI providers and configure available models",
+      "gateway": "Configure OpenClaw gateway connection URL and access token",
       "language": "Follow the browser language by default, with manual override available",
       "community": "Join the official WeChat group for updates and support"
     },

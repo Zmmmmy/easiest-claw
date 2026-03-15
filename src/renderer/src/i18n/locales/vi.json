@@ -38,11 +38,13 @@
     "backToApp": "Quay lại EasiestClaw",
     "sections": {
       "models": "Cấu hình mô hình",
+      "gateway": "Cổng kết nối",
       "language": "Ngôn ngữ",
       "community": "Cộng đồng"
     },
     "descriptions": {
       "models": "Thêm nhà cung cấp AI và cấu hình các mô hình khả dụng",
+      "gateway": "Cấu hình URL kết nối và mã truy cập cổng OpenClaw",
       "language": "Mặc định theo ngôn ngữ trình duyệt, và bạn cũng có thể chuyển thủ công",
       "community": "Tham gia nhóm WeChat chính thức để nhận cập nhật và hỗ trợ"
     },

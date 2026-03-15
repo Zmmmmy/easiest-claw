@@ -38,11 +38,13 @@
     "backToApp": "Retour à EasiestClaw",
     "sections": {
       "models": "Config modèles",
+      "gateway": "Passerelle",
       "language": "Langue",
       "community": "Communauté"
     },
     "descriptions": {
       "models": "Ajoutez des fournisseurs IA et configurez les modèles disponibles",
+      "gateway": "Configurer l'URL de connexion et le jeton d'accès de la passerelle OpenClaw",
       "language": "Suit la langue du navigateur par défaut, avec possibilité de changement manuel",
       "community": "Rejoignez le groupe WeChat officiel pour les dernières nouvelles et le support"
     },

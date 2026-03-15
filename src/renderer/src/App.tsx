@@ -47,7 +47,7 @@ function AppRoot() {
   const [onboardingDone, setOnboardingDone] = useState(() => isOnboardingDone())
   const { state } = useApp()
 
-  // 本次会话是否已成功连接过（防止断线重连时回退到 loading 界面）
+  // 本次会话是否已成功连接过（防止断线重连时回退到启动封面）
   const [everConnected, setEverConnected] = useState(false)
   useEffect(() => {
     if (state.gatewayConnected && !everConnected) setEverConnected(true)
@@ -58,7 +58,7 @@ function AppRoot() {
     return <OnboardingFlow onDone={() => setOnboardingDone(true)} />
   }
 
-  // 老用户：首次连接前显示全屏 gateway loading（带启动日志）
+  // 老用户：未连接过 → 显示启动封面（品牌 Logo + 连接进度 + 日志）
   if (!everConnected) {
     return <GatewayLoadingScreen />
   }

@@ -14,15 +14,19 @@
 
 ### 新增
 
--
+- 设置页新增「Gateway」配置面板，支持配置网关连接 URL 和访问令牌
+- 关于页面新增 OpenClaw 更新面板（从 OpenClaw 状态页迁移）
 
 ### 修复
 
--
+- 修复开发控制台中文日志乱码：主进程所有中文日志消息改为英文，避免 Windows GBK 终端编码不匹配
+- 修复启动时 Gateway 未就绪即尝试连接产生大量 ECONNREFUSED 重连：改为串行等待 gateway 启动完成后再启动 runtime
 
 ### 变更
 
--
+- 精简 OpenClaw 状态页：移除 AI 团队（agent 列表）部分，保留核心的连接状态、环境信息和日志面板
+- 启动时序优化：防火墙规则与 OpenClaw 解压改为并行执行，端口探测从 1.5s 轮询缩短为 300ms 单次探测
+- 未连接 Gateway 前始终显示品牌启动封面（GatewayLoadingScreen），不再闪现空白聊天页
 
 ---
 

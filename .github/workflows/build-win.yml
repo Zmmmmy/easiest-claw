@@ -69,6 +69,7 @@ jobs:
           $dest = "resources/git/win"
           $zip  = "build/mingit.zip"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          New-Item -ItemType Directory -Force -Path (Split-Path $zip) | Out-Null
           Invoke-WebRequest -Uri $url -OutFile $zip
           Expand-Archive -Path $zip -DestinationPath $dest -Force
           Remove-Item $zip

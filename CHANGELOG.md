@@ -18,7 +18,8 @@
 
 ### 修复
 
--
+- 彻底重写 OpenClaw 程序内升级策略：改为与打包脚本完全相同的机制——用内置 npm 在临时目录执行 `npm install openclaw@version`（libsignal-node 用 stub override），从根本上解决新增依赖（如 `@modelcontextprotocol/sdk`）缺失问题
+- 改进启动时依赖检查：改为版本感知（openclaw 版本变化才重跑 npm install），而不是逐包检查，避免检查逻辑遗漏未在本地 package.json 列出的依赖
 
 ### 变更
 

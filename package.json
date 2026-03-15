@@ -107,7 +107,14 @@
     "win": {
       "target": "nsis",
       "icon": "resources/icon.ico",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "extraResources": [
+        {
+          "from": "resources/git/win",
+          "to": "git",
+          "filter": ["**/*"]
+        }
+      ]
     },
     "nsis": {
       "installerIcon": "resources/icon.ico",

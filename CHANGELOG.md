@@ -18,7 +18,7 @@
 
 ### 修复
 
--
+- 彻底修复程序内升级 OpenClaw 在 Windows 上因 git 命令失败导致 npm install 报错（ENOENT/EINVAL）：改为随应用内置 MinGit（Git for Windows 最小分发），通过 `npm_config_git` 指向内置 `git.exe`，不再依赖系统 git 也不再使用任何 fake git 脚本
 
 ### 变更
 

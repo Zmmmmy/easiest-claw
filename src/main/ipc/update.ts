@@ -6,7 +6,7 @@ import { join, dirname } from 'path'
 import os from 'os'
 import https from 'https'
 import { spawn } from 'child_process'
-import { stopGatewayProcess, restartBundledGateway, getBundledOpenclawVersion, waitForPortClosed, getBundledNpmBin } from '../gateway/bundled-process'
+import { stopGatewayProcess, restartBundledGateway, getBundledOpenclawVersion, waitForPortClosed, getBundledNpmBin, getBundledGitBin } from '../gateway/bundled-process'
 
 const REGISTRY = 'https://registry.npmmirror.com'
 const REGISTRY_FALLBACK = 'https://registry.npmjs.org'
@@ -124,32 +124,6 @@ async function readCurrentVersion(): Promise<string | null> {
 type ProgressSender = (step: string, status: 'running' | 'done' | 'error', detail?: string) => void
 
 /**
- * 创建 fake git 目录，防止 npm 在 git 未安装时因 spawn git ENOENT 失败。
- * 返回包含 fake git 可执行文件的目录路径（需要 prepend 到 PATH）。
- */
-async function createFakeGitDir(tmpDir: string): Promise<string> {
-  const fakeGitDir = join(tmpDir, '_fake-git')
-  await fs.promises.mkdir(fakeGitDir, { recursive: true })
-  if (process.platform === 'win32') {
-    // git.cmd: --version 返回 0（告知 npm git 存在），其余命令返回 128（非 git 仓库 / 无 git URL）
-    await fs.promises.writeFile(
-      join(fakeGitDir, 'git.cmd'),
-      '@echo off\r\nif "%1"=="--version" (echo git version 2.39.0 && exit /b 0)\r\nexit /b 128\r\n',
-      'utf8'
-    )
-  } else {
-    const gitPath = join(fakeGitDir, 'git')
-    await fs.promises.writeFile(
-      gitPath,
-      '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "git version 2.39.0"; exit 0; fi\nexit 128\n',
-      'utf8'
-    )
-    await fs.promises.chmod(gitPath, 0o755)
-  }
-  return fakeGitDir
-}
-
-/**
  * 用内置 npm 在 wrapper 目录安装指定版本的 openclaw 及全部依赖。
  *
  * 策略与 bundle-openclaw.mjs 完全相同：
@@ -181,15 +155,14 @@ async function installOpenclawInWrapper(
   const nodeDir = dirname(npmBin)
   const baseArgs = ['install', '--no-audit', '--no-fund', '--ignore-scripts']
 
-  // 注入 fake git：防止 npm 在 git 未安装时因 spawn git ENOENT 失败（npm 10 在安装时会探测 git）
-  const fakeGitDir = await createFakeGitDir(wrapperDir)
-  const fakeGitBin = join(fakeGitDir, process.platform === 'win32' ? 'git.cmd' : 'git')
   const pathSep = process.platform === 'win32' ? ';' : ':'
-  const env = {
-    ...process.env,
-    PATH: `${fakeGitDir}${pathSep}${nodeDir}${pathSep}${process.env.PATH ?? ''}`,
-    npm_config_git: fakeGitBin, // 告诉 npm 使用我们的 fake git
+  const env: Record<string, string> = {
+    ...(process.env as Record<string, string>),
+    PATH: `${nodeDir}${pathSep}${process.env.PATH ?? ''}`,
   }
+  // Windows 使用内置 MinGit；macOS/Linux 系统自带 git，无需额外设置
+  const bundledGit = getBundledGitBin()
+  if (bundledGit) env.npm_config_git = bundledGit
 
   for (const registry of [REGISTRY, REGISTRY_FALLBACK]) {
     send('download', 'running', `正在从 ${registry} 安装 openclaw@${version}...`)

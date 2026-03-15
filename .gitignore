@@ -9,6 +9,9 @@ build/
 # Node.js 二进制（80MB，平台特定，CI 里按需下载）
 resources/node/
 
+# MinGit（Windows 专用，CI 里按需下载）
+resources/git/
+
 # TypeScript 增量构建缓存
 *.tsbuildinfo
 

@@ -37,6 +37,15 @@ export function getBundledOpenclaw(): { openclawDir: string; entryScript: string
   return null
 }
 
+export function getBundledGitBin(): string | null {
+  if (process.platform !== 'win32') return null
+  const gitDir = app.isPackaged
+    ? join(process.resourcesPath, 'git')
+    : join(app.getAppPath(), 'resources', 'git', 'win')
+  const gitExe = join(gitDir, 'cmd', 'git.exe')
+  return existsSync(gitExe) ? gitExe : null
+}
+
 export function getBundledNodeBin(): string {
   const nodeDir = app.isPackaged
     ? join(process.resourcesPath, 'node')

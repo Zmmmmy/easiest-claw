@@ -61,6 +61,19 @@ jobs:
           Copy-Item -Recurse "$src/node_modules/npm" "resources/node/node_modules/npm"
           Remove-Item -Recurse -Force $src, node-win.zip
 
+      - name: Bundle MinGit
+        shell: powershell
+        run: |
+          $GIT_VER = "2.47.0"
+          $url = "https://github.com/git-for-windows/git/releases/download/v$GIT_VER.windows.1/MinGit-$GIT_VER-64-bit.zip"
+          $dest = "resources/git/win"
+          $zip  = "build/mingit.zip"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          Remove-Item $zip
+          Write-Host "✓ MinGit $GIT_VER bundled"
+
       - name: Bundle OpenClaw
         run: node scripts/bundle-openclaw.mjs
         env:

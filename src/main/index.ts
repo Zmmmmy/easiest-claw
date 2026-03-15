@@ -5,7 +5,7 @@ import { existsSync, writeFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAllIpcHandlers } from './ipc'
 import { startRuntime, stopRuntime } from './gateway/runtime'
-import { autoSpawnBundledOpenclaw, addGatewayLogListener } from './gateway/bundled-process'
+import { autoSpawnBundledOpenclaw, addGatewayLogListener, getGatewayLogBuffer } from './gateway/bundled-process'
 import { extractOpenClawIfNeeded, getExtractState, confirmUpgrade, skipUpgrade } from './openclaw-init'
 import { logger } from './lib/logger'
 import { FIREWALL_RULE_NAME, APP_ID } from '@shared/branding'
@@ -135,6 +135,8 @@ app.whenReady().then(async () => {
   // 用户决定是否升级内置 OpenClaw
   ipcMain.handle('openclaw:upgrade-confirm', () => { confirmUpgrade() })
   ipcMain.handle('openclaw:upgrade-skip', () => { skipUpgrade() })
+  // Gateway 日志缓冲（供渲染层切换页面回来时恢复日志面板）
+  ipcMain.handle('gateway:logs-get', () => getGatewayLogBuffer())
 
   // Windows: 先等防火墙规则添加完毕，再启动 Gateway。
   // 若两者并行，Gateway 抢先监听端口会触发系统防火墙弹窗，阻塞用户操作。

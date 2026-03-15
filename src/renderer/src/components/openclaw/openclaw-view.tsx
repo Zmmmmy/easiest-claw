@@ -274,6 +274,21 @@ export function OpenclawView() {
         return () => { unsub() }
     }, [])
 
+    // 挂载时从主进程拉取快照，恢复切换页面后丢失的状态
+    useEffect(() => {
+        window.ipc.openclawUpgradeStateGet().then((s) => {
+            const state = s as { running: boolean; steps: Record<string, { status: string; logs: string[] }> }
+            if (state.running || Object.values(state.steps).some(v => v.status !== 'pending')) {
+                const pick = (key: string) => (state.steps[key] ?? { status: 'pending', logs: [] }) as { status: 'pending' | 'running' | 'done' | 'error'; logs: string[] }
+                setUpgrade({ running: state.running, steps: { stop: pick('stop'), download: pick('download'), install: pick('install'), start: pick('start') } })
+            }
+        }).catch(() => {})
+        window.ipc.gatewayLogsGet().then((logs) => {
+            const ls = logs as Array<{ line: string; isError: boolean }>
+            if (ls.length > 0) setGwLogs(ls)
+        }).catch(() => {})
+    }, [])
+
     const handleSwitchToBundled = async () => {
         setSwitchingToBundled(true)
         try {

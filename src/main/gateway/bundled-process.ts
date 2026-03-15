@@ -229,9 +229,17 @@ export async function getBundledOpenclawVersion(openclawDir: string): Promise<st
 type GatewayLogListener = (line: string, isError: boolean) => void
 const gatewayLogListeners = new Set<GatewayLogListener>()
 
+// 日志缓冲区：保留最近 500 行，供渲染层挂载时初始化日志面板
+const _gatewayLogBuffer: Array<{ line: string; isError: boolean }> = []
+const GATEWAY_LOG_BUFFER_MAX = 500
+
 export function addGatewayLogListener(fn: GatewayLogListener): () => void {
   gatewayLogListeners.add(fn)
   return () => gatewayLogListeners.delete(fn)
+}
+
+export function getGatewayLogBuffer(): Array<{ line: string; isError: boolean }> {
+  return _gatewayLogBuffer.slice()
 }
 
 let gatewayProcess: Electron.UtilityProcess | null = null
@@ -334,6 +342,8 @@ export function forkOpenclawGateway(entryScript: string, openclawDir: string, to
   logger.info(`[Gateway] fork 完成 — entry: ${entryScript}`)
 
   const handleLine = (line: string, isError: boolean) => {
+    _gatewayLogBuffer.push({ line, isError })
+    if (_gatewayLogBuffer.length > GATEWAY_LOG_BUFFER_MAX) _gatewayLogBuffer.shift()
     console.log(`[Gateway${isError ? ':err' : ''}]`, line)
     gatewayLogListeners.forEach(fn => fn(line, isError))
   }

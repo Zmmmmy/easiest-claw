@@ -129,6 +129,22 @@ async function readCurrentVersion(): Promise<string | null> {
   return dir ? getBundledOpenclawVersion(dir) : null
 }
 
+// ── 模块级升级状态（供渲染层挂载时查询，页面切换后恢复）──────────────────────────
+const _upgradeStepNames = ['download', 'verify', 'stage', 'stop', 'install', 'start', 'rollback'] as const
+type UpgradeStepStatus = 'pending' | 'running' | 'done' | 'error'
+
+const _upgradeState: {
+  running: boolean
+  steps: Record<string, { status: UpgradeStepStatus; logs: string[] }>
+} = { running: false, steps: {} }
+
+for (const s of _upgradeStepNames) _upgradeState.steps[s] = { status: 'pending', logs: [] }
+
+function resetUpgradeState(): void {
+  _upgradeState.running = true
+  for (const s of _upgradeStepNames) _upgradeState.steps[s] = { status: 'pending', logs: [] }
+}
+
 // ── 进度发送器类型 ─────────────────────────────────────────────────────────────
 type ProgressSender = (step: string, status: 'running' | 'done' | 'error', detail?: string) => void
 
@@ -386,13 +402,30 @@ export const registerUpdateHandlers = (ipcMain: IpcMain): void => {
 
   // 执行升级
   ipcMain.handle('openclaw:upgrade', async (event, { version }: { version: string }) => {
+    resetUpgradeState()
     const send: ProgressSender = (step, status, detail) => {
       console.log(`[Update:${step}][${status}] ${detail ?? ''}`)
+      // 同步更新模块级状态，供渲染层重新挂载时恢复
+      const stepState = _upgradeState.steps[step]
+      if (stepState) {
+        stepState.status = status
+        if (status === 'running' && detail) {
+          stepState.logs = [...stepState.logs.slice(-299), detail]
+        }
+      }
       try { event.sender.send('openclaw:upgrade-progress', { step, status, detail }) } catch {}
     }
 
     const openclawDir = getOpenclawDir()
-    if (!openclawDir) return { ok: false, error: '找不到内置 OpenClaw 目录' }
-    return performUpgrade(version, openclawDir, send)
+    if (!openclawDir) {
+      _upgradeState.running = false
+      return { ok: false, error: '找不到内置 OpenClaw 目录' }
+    }
+    const result = await performUpgrade(version, openclawDir, send)
+    _upgradeState.running = false
+    return result
   })
+
+  // 查询当前升级状态（渲染层切换页面回来时初始化用）
+  ipcMain.handle('openclaw:upgrade-state', () => _upgradeState)
 }

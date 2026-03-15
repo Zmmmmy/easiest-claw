@@ -196,10 +196,12 @@ const ipcApi = {
     gatewayLogCallbacks.add(callback)
     return () => gatewayLogCallbacks.delete(callback)
   },
+  gatewayLogsGet: () => ipcRenderer.invoke('gateway:logs-get'),
 
   // ── Update ────────────────────────────────────────────────────────────────
   openclawCheckUpdate: () => ipcRenderer.invoke('openclaw:check-update'),
   openclawUpgrade: (version: string) => ipcRenderer.invoke('openclaw:upgrade', { version }),
+  openclawUpgradeStateGet: () => ipcRenderer.invoke('openclaw:upgrade-state'),
   onUpgradeProgress: (callback: UpgradeProgressCallback) => {
     upgradeProgressCallbacks.add(callback)
     return () => upgradeProgressCallbacks.delete(callback)

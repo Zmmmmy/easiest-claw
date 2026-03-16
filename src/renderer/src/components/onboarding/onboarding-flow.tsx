@@ -5,7 +5,7 @@ const ANSI_RE = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g
 function stripAnsi(str: string): string {
   return str.replace(ANSI_RE, "")
 }
-import { Loader2, Wifi, Minus, X } from "lucide-react"
+import { Loader2, Wifi, Minus, X, FolderOpen, HardDrive } from "lucide-react"
 import { Camera } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -53,6 +53,108 @@ function emojiToDataUrl(emoji: string, bg: string): string {
   } catch {
     return ""
   }
+}
+
+// ── Step 0: Data location selection (first-time only) ────────────────────────
+
+function DataLocationStep({ onDone }: { onDone: () => void }) {
+  const { t } = useI18n()
+  const [selectedDir, setSelectedDir] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const handleChooseDir = async () => {
+    const result = await window.ipc.dataLocationChoose()
+    if (result.ok && result.dir) {
+      setSelectedDir(result.dir)
+    }
+  }
+
+  const handleConfirm = async () => {
+    setLoading(true)
+    // 如果没选目录，使用默认
+    if (!selectedDir) {
+      await window.ipc.dataLocationUseDefault()
+    }
+    // 通知主进程开始初始化流程（解压 + gateway）
+    window.ipc.dataLocationStartInit()
+    onDone()
+  }
+
+  const handleUseDefault = async () => {
+    setLoading(true)
+    await window.ipc.dataLocationUseDefault()
+    window.ipc.dataLocationStartInit()
+    onDone()
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-6 text-center">
+      <img src={logoSvg} alt={APP_NAME} className="h-16 w-auto" />
+
+      <div className="space-y-1">
+        <h1 className="text-xl font-semibold">{t("onboarding.dataLocationTitle")}</h1>
+        <p className="text-sm text-muted-foreground max-w-sm">
+          {t("onboarding.dataLocationDesc")}
+        </p>
+      </div>
+
+      <div className="w-[400px] space-y-3">
+        {/* 选择自定义目录 */}
+        <button
+          type="button"
+          onClick={handleChooseDir}
+          disabled={loading}
+          className={cn(
+            "w-full flex items-center gap-3 rounded-xl border p-4 text-left transition-all hover:border-primary/50 hover:bg-accent/50",
+            selectedDir ? "border-primary bg-primary/5" : "border-border"
+          )}
+        >
+          <div className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
+            selectedDir ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+          )}>
+            <FolderOpen className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">{t("onboarding.dataLocationChoose")}</p>
+            {selectedDir ? (
+              <p className="text-xs text-primary truncate">{selectedDir}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t("onboarding.dataLocationChooseHint")}</p>
+            )}
+          </div>
+        </button>
+
+        {/* 使用默认 */}
+        <button
+          type="button"
+          onClick={handleUseDefault}
+          disabled={loading}
+          className="w-full flex items-center gap-3 rounded-xl border border-border p-4 text-left transition-all hover:border-primary/50 hover:bg-accent/50"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+            <HardDrive className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">{t("onboarding.dataLocationDefault")}</p>
+            <p className="text-xs text-muted-foreground">{t("onboarding.dataLocationDefaultHint")}</p>
+          </div>
+        </button>
+      </div>
+
+      {/* 确认按钮（仅选了自定义目录后显示） */}
+      {selectedDir && (
+        <Button
+          className="w-[400px]"
+          onClick={handleConfirm}
+          disabled={loading}
+        >
+          {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {t("onboarding.dataLocationConfirm")}
+        </Button>
+      )}
+    </div>
+  )
 }
 
 // ── Step 1: Gateway loading screen ────────────────────────────────────────────
@@ -414,8 +516,12 @@ function ProfileSetupStep({ onDone }: { onDone: () => void }) {
 
 export function GatewayLoadingScreen() {
   return (
-    <div className="h-screen relative flex items-center justify-center bg-background">
-      <div className="absolute top-4 right-4 flex items-center gap-1 z-10">
+    <div className="h-screen relative flex items-center justify-center bg-background"
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+    >
+      <div className="absolute top-4 right-4 flex items-center gap-1 z-10"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
         <button
           type="button"
           onClick={() => window.ipc.windowMinimize()}
@@ -433,7 +539,9 @@ export function GatewayLoadingScreen() {
           <X className="h-4 w-4" />
         </button>
       </div>
-      <GatewayLoadingStep />
+      <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <GatewayLoadingStep />
+      </div>
     </div>
   )
 }
@@ -444,7 +552,20 @@ interface OnboardingFlowProps {
 
 export function OnboardingFlow({ onDone }: OnboardingFlowProps) {
   const { state } = useApp()
-  const [step, setStep] = useState<"gateway" | "profile">("gateway")
+  const [step, setStep] = useState<"data-location" | "gateway" | "profile">("gateway")
+  const [checkingDataLocation, setCheckingDataLocation] = useState(true)
+
+  // 首次渲染时检查是否需要选择数据目录
+  useEffect(() => {
+    window.ipc.dataLocationNeedSelect().then((needSelect) => {
+      if (needSelect) {
+        setStep("data-location")
+      }
+      setCheckingDataLocation(false)
+    }).catch(() => {
+      setCheckingDataLocation(false)
+    })
+  }, [])
 
   useEffect(() => {
     if (!state.gatewayConnected || step !== "gateway") return
@@ -452,10 +573,22 @@ export function OnboardingFlow({ onDone }: OnboardingFlowProps) {
     return () => clearTimeout(timer)
   }, [state.gatewayConnected, step])
 
+  if (checkingDataLocation) {
+    return (
+      <div className="h-screen relative flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 text-primary animate-spin" />
+      </div>
+    )
+  }
+
   return (
-    <div className="h-screen relative flex items-center justify-center bg-background">
+    <div className="h-screen relative flex items-center justify-center bg-background"
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+    >
       {/* 窗口控件 — 始终可见 */}
-      <div className="absolute top-4 right-4 flex items-center gap-1 z-10">
+      <div className="absolute top-4 right-4 flex items-center gap-1 z-10"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
         <button
           type="button"
           onClick={() => window.ipc.windowMinimize()}
@@ -473,17 +606,25 @@ export function OnboardingFlow({ onDone }: OnboardingFlowProps) {
           <X className="h-4 w-4" />
         </button>
       </div>
-      <div className={cn(
-        "transition-all duration-300",
-        step === "gateway" ? "opacity-100" : "opacity-0 pointer-events-none absolute"
-      )}>
-        <GatewayLoadingStep />
-      </div>
-      <div className={cn(
-        "transition-all duration-300 px-6",
-        step === "profile" ? "opacity-100" : "opacity-0 pointer-events-none absolute"
-      )}>
-        {step === "profile" && <ProfileSetupStep onDone={onDone} />}
+      <div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div className={cn(
+          "transition-all duration-300",
+          step === "data-location" ? "opacity-100" : "opacity-0 pointer-events-none absolute"
+        )}>
+          {step === "data-location" && <DataLocationStep onDone={() => setStep("gateway")} />}
+        </div>
+        <div className={cn(
+          "transition-all duration-300",
+          step === "gateway" ? "opacity-100" : "opacity-0 pointer-events-none absolute"
+        )}>
+          <GatewayLoadingStep />
+        </div>
+        <div className={cn(
+          "transition-all duration-300 px-6",
+          step === "profile" ? "opacity-100" : "opacity-0 pointer-events-none absolute"
+        )}>
+          {step === "profile" && <ProfileSetupStep onDone={onDone} />}
+        </div>
       </div>
     </div>
   )

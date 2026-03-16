@@ -263,17 +263,21 @@ const ipcApi = {
   channelsSet: (params: { channelId: string; config: Record<string, unknown> }) =>
     ipcRenderer.invoke('openclaw:channels:set', params),
 
+  // ── Data location (onboarding) ──────────────────────────────────────────────
+  dataLocationNeedSelect: (): Promise<boolean> =>
+    ipcRenderer.invoke('data-location:need-select'),
+  dataLocationChoose: (): Promise<{ ok: boolean; dir?: string }> =>
+    ipcRenderer.invoke('data-location:choose'),
+  dataLocationUseDefault: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('data-location:use-default'),
+  dataLocationStartInit: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('data-location:start-init'),
+
   // ── File path (Electron 32+ replaces deprecated file.path) ───────────────
   getFilePath: (file: File) => webUtils.getPathForFile(file),
 }
 
 contextBridge.exposeInMainWorld('ipc', ipcApi)
-
-// Data location prompt API
-contextBridge.exposeInMainWorld('electronAPI', {
-  chooseDir: () => ipcRenderer.invoke('data-location:choose'),
-  useDefault: () => ipcRenderer.invoke('data-location:default')
-})
 
 // TypeScript type augmentation — declare in renderer via window.ipc
 export type IpcApi = typeof ipcApi

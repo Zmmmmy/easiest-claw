@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { spawn } from 'child_process'
-import { existsSync, writeFileSync, readFileSync, mkdirSync } from 'fs'
+import { existsSync, writeFileSync, readFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAllIpcHandlers } from './ipc'
 import { startRuntime, stopRuntime } from './gateway/runtime'
@@ -11,6 +11,7 @@ import { migrateDataDirIfNeeded } from './lib/data-dir'
 import { logger } from './lib/logger'
 import { FIREWALL_RULE_NAME, APP_ID } from '@shared/branding'
 import { initAppUpdater, registerAppUpdaterHandlers } from './app-updater'
+import { patchSettings } from './gateway/settings'
 
 // App icon（开发和生产均用同一份，electron-builder 打包时也从 package.json 读取）
 const APP_ICON = join(app.getAppPath(), 'resources', 'icon.ico')
@@ -36,59 +37,19 @@ async function ensureFirewallRule(): Promise<void> {
   })
 }
 
-// ── 首次启动：选择数据目录 ────────────────────────────────────────────────────
-async function checkAndPromptDataLocation(): Promise<void> {
+// ── 首次启动：数据目录选择（由渲染层 onboarding 驱动）─────────────────────────
+// 渲染层通过 IPC 查询是否需要选择数据目录，选择完成后通知主进程继续解压流程。
+// 不再使用独立 BrowserWindow 弹窗。
+
+function isDataLocationSelected(): boolean {
   const settingsFile = join(app.getPath('userData'), 'settings.json')
-  let settings: Record<string, unknown> = {}
-
-  if (existsSync(settingsFile)) {
-    try {
-      settings = JSON.parse(readFileSync(settingsFile, 'utf8')) as Record<string, unknown>
-    } catch {}
+  if (!existsSync(settingsFile)) return false
+  try {
+    const s = JSON.parse(readFileSync(settingsFile, 'utf8')) as Record<string, unknown>
+    return s.dataLocationSelected === true
+  } catch {
+    return false
   }
-
-  if (settings.dataLocationSelected) return
-
-  return new Promise((resolve) => {
-    const win = new BrowserWindow({
-      width: 480,
-      height: 320,
-      frame: false,
-      transparent: true,
-      resizable: false,
-      center: true,
-      show: false,
-      webPreferences: {
-        preload: join(__dirname, '../preload/index.js'),
-        contextIsolation: true
-      }
-    })
-
-    win.loadFile(join(__dirname, 'data-location-prompt.html'))
-    win.once('ready-to-show', () => win.show())
-
-    ipcMain.handle('data-location:choose', async () => {
-      const result = await dialog.showOpenDialog(win, {
-        title: '选择数据存储目录',
-        defaultPath: app.getPath('home'),
-        properties: ['openDirectory', 'createDirectory']
-      })
-      if (!result.canceled && result.filePaths[0]) {
-        settings.customDataDir = result.filePaths[0]
-      }
-      settings.dataLocationSelected = true
-      writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8')
-      win.close()
-      resolve()
-    })
-
-    ipcMain.handle('data-location:default', () => {
-      settings.dataLocationSelected = true
-      writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8')
-      win.close()
-      resolve()
-    })
-  })
 }
 
 // ── 单实例锁 ──────────────────────────────────────────────────────────────────
@@ -194,16 +155,57 @@ app.whenReady().then(async () => {
   // Gateway 日志缓冲（供渲染层切换页面回来时恢复日志面板）
   ipcMain.handle('gateway:logs-get', () => getGatewayLogBuffer())
 
-  // 首次启动：选择数据目录
-  await checkAndPromptDataLocation()
+  // ── 数据目录选择 IPC（渲染层 onboarding 使用）──────────────────────────────
+  ipcMain.handle('data-location:need-select', () => !isDataLocationSelected())
 
+  ipcMain.handle('data-location:choose', async () => {
+    if (!mainWindow) return { ok: false }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择数据存储目录',
+      defaultPath: app.getPath('home'),
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || !result.filePaths[0]) return { ok: false }
+    patchSettings({ customDataDir: result.filePaths[0], dataLocationSelected: true } as Record<string, unknown>)
+    return { ok: true, dir: result.filePaths[0] }
+  })
+
+  ipcMain.handle('data-location:use-default', () => {
+    patchSettings({ dataLocationSelected: true } as Record<string, unknown>)
+    return { ok: true }
+  })
+
+  // ── 开始初始化流程的 IPC（渲染层选完数据目录后调用）───────────────────────
+  // 将解压 + gateway 启动封装成一个 IPC，渲染层在 onboarding 选完目录后调用
+  ipcMain.handle('data-location:start-init', async () => {
+    await startInitPipeline()
+    return { ok: true }
+  })
+
+  // 如果不需要选择数据目录（非首次启动），直接启动初始化流程
+  if (isDataLocationSelected()) {
+    logger.info('[Startup] dataLocationSelected=true, starting init pipeline immediately')
+    await startInitPipeline()
+  } else {
+    logger.info('[Startup] dataLocationSelected=false, waiting for renderer to complete data location selection')
+  }
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = createWindow()
+    }
+  })
+
+  // 初始化 app 自动更新（打包版本）
+  initAppUpdater(mainWindow)
+})
+
+// ── 初始化流水线：迁移 → 防火墙 + 解压 → gateway → runtime ──────────────────
+async function startInitPipeline(): Promise<void> {
   // 数据目录迁移（在解压前执行，避免解压到旧位置）
   await migrateDataDirIfNeeded()
 
-  // 防火墙规则 + 解压并行执行：两者互不依赖，无需串行等待。
-  // 防火墙规则需在 gateway 监听端口前完成（否则触发弹窗），
-  // 解压需在 autoSpawnBundledOpenclaw 前完成（依赖解压产物）。
-  // Promise.all 保证两者都完成后才继续。
+  // 防火墙规则 + 解压并行执行
   logger.info('[Startup] ensureFirewallRule + extractOpenClawIfNeeded — start (parallel)')
   await Promise.all([
     ensureFirewallRule(),
@@ -211,22 +213,21 @@ app.whenReady().then(async () => {
   ])
   logger.info('[Startup] ensureFirewallRule + extractOpenClawIfNeeded — done')
 
-  // Gateway 进程日志 → 渲染进程（onboarding 启动日志面板）
+  // Gateway 进程日志 → 渲染进程
   addGatewayLogListener((line, isError) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('gateway:log', { line, isError })
     }
   })
 
-  // Spawn bundled openclaw — await so gateway is ready before runtime connects.
-  // patchSettings() is called synchronously inside before the first await.
+  // Spawn bundled openclaw
   logger.info('[Startup] autoSpawnBundledOpenclaw — start')
   await autoSpawnBundledOpenclaw().catch((e) => {
     logger.error(`[AutoSpawn] fatal error: ${e}`)
     console.error('[AutoSpawn] error:', e)
   })
 
-  // Start runtime AFTER gateway is ready — avoids ECONNREFUSED retry spam.
+  // Start runtime AFTER gateway is ready
   logger.info('[Startup] startRuntime — start')
   startRuntime((event) => {
     if (is.dev) {
@@ -247,16 +248,7 @@ app.whenReady().then(async () => {
       }
     }
   }, join(app.getPath('userData'), '.device-identity.json'))
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createWindow()
-    }
-  })
-
-  // 初始化 app 自动更新（打包版本）
-  initAppUpdater(mainWindow)
-})
+}
 
 app.on('window-all-closed', async () => {
   logger.info('[Shutdown] window-all-closed — stopping runtime')

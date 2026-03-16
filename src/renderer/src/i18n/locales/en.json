@@ -357,7 +357,14 @@
     "upgradeFrom": "Current version",
     "upgradeTo": "New version",
     "upgradeConfirm": "Upgrade Now",
-    "upgradeSkip": "Skip for Now"
+    "upgradeSkip": "Skip for Now",
+    "dataLocationTitle": "Choose Data Storage Location",
+    "dataLocationDesc": "OpenClaw runtime data is ~500MB. Choose a drive with enough space.",
+    "dataLocationChoose": "Choose Custom Directory",
+    "dataLocationChooseHint": "Click to browse and select a folder",
+    "dataLocationDefault": "Use Default Location",
+    "dataLocationDefaultHint": "Data will be stored in the system app data directory",
+    "dataLocationConfirm": "Confirm & Continue"
   },
   "windowControls": {
     "minimize": "Minimize",

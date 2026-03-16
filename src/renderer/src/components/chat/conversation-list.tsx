@@ -49,6 +49,13 @@ export function ConversationList(_props: ConversationListProps) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* macOS 红绿灯占位区 */}
+      {window.ipc.platform === 'darwin' && (
+        <div
+          className="h-11 shrink-0"
+          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        />
+      )}
       {/* 顶部搜索栏 — WeChat 风格 */}
       <div
         className="h-12 flex items-center px-3 gap-2 border-b shrink-0"

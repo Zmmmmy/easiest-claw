@@ -104,6 +104,12 @@ function GatewayLoadingStep() {
         setUpgradeInfo({ from: upgradeFrom, to: upgradeTo })
       }
     }).catch(() => { /* ignore */ })
+    // 补偿：渲染进程挂载前主进程已输出的 gateway 日志
+    window.ipc.gatewayLogsGet().then((logs) => {
+      if (logs.length > 0) {
+        setGatewayLog(logs.map(l => stripAnsi(l.line)))
+      }
+    }).catch(() => { /* ignore */ })
     return () => { unsubExtract(); unsubGwLog() }
   }, [])
 

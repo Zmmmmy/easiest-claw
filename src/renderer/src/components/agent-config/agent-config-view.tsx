@@ -2,17 +2,24 @@ import { useEffect, useState } from "react"
 import {
   AlertCircle,
   Bot,
+  Brain,
+  Calendar,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Copy,
+  FileText,
   Info,
   Loader2,
   Play,
   RefreshCw,
   RotateCcw,
+  Save,
   Trash2,
   XCircle,
   Zap,
 } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -50,7 +57,7 @@ interface AgentSession {
   lastMessagePreview?: string
 }
 
-type TabId = "overview" | "sessions" | "skills" | "cron"
+type TabId = "overview" | "sessions" | "memory" | "skills" | "cron"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -693,11 +700,224 @@ function CronTab({ agent, refreshTick }: { agent: Agent; refreshTick: number }) 
   )
 }
 
+// ── Memory Tab ───────────────────────────────────────────────────────────────
+
+interface DailyMemoryFile {
+  name: string
+  size: number
+  updatedAtMs: number
+}
+
+function MemoryTab({ agent, refreshTick }: { agent: Agent; refreshTick: number }) {
+  const [memoryContent, setMemoryContent] = useState("")
+  const [editContent, setEditContent] = useState("")
+  const [hasUnsaved, setHasUnsaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [dailyFiles, setDailyFiles] = useState<DailyMemoryFile[]>([])
+  const [expandedFile, setExpandedFile] = useState<string | null>(null)
+  const [expandedContent, setExpandedContent] = useState("")
+  const [expandedLoading, setExpandedLoading] = useState(false)
+  const [sessions, setSessions] = useState<AgentSession[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    setHasUnsaved(false)
+    setExpandedFile(null)
+
+    Promise.all([
+      window.ipc.agentsFilesGet({ agentId: agent.id, name: "MEMORY.md" }),
+      window.ipc.agentsMemoryList({ agentId: agent.id }),
+      window.ipc.sessionsList({ agentId: agent.id, includeLastMessage: false }),
+    ]).then(([memRes, dailyRes, sessRes]) => {
+      const content = memRes.ok ? ((memRes.result as { content?: string })?.content ?? "") : ""
+      setMemoryContent(content)
+      setEditContent(content)
+
+      if (dailyRes.ok) {
+        setDailyFiles((dailyRes as { ok: true; files: DailyMemoryFile[] }).files ?? [])
+      }
+
+      if (sessRes.ok) {
+        setSessions(parseSessions(sessRes.result))
+      }
+    }).finally(() => setLoading(false))
+  }, [agent.id, refreshTick])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await window.ipc.agentsFilesSet({ agentId: agent.id, name: "MEMORY.md", content: editContent })
+      if ((res as { ok: boolean }).ok) {
+        setMemoryContent(editContent)
+        setHasUnsaved(false)
+        toast.success("记忆已保存")
+      } else {
+        toast.error((res as { ok: false; error: string }).error ?? "保存失败")
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleExpand = async (fileName: string) => {
+    if (expandedFile === fileName) {
+      setExpandedFile(null)
+      return
+    }
+    setExpandedFile(fileName)
+    setExpandedLoading(true)
+    setExpandedContent("")
+    try {
+      const res = await window.ipc.agentsMemoryGet({ agentId: agent.id, name: fileName })
+      if (res.ok) {
+        setExpandedContent((res as { ok: true; content: string }).content ?? "")
+      }
+    } finally {
+      setExpandedLoading(false)
+    }
+  }
+
+  // Token stats from sessions
+  const totalInput = sessions.reduce((sum, s) => sum + (s.inputTokens ?? 0), 0)
+  const totalOutput = sessions.reduce((sum, s) => sum + (s.outputTokens ?? 0), 0)
+  const totalContext = sessions.reduce((sum, s) => sum + (s.contextTokens ?? 0), 0)
+  const lastActive = sessions.reduce((max, s) => Math.max(max, s.updatedAt ?? 0), 0)
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />加载中...
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full overflow-y-auto px-6 py-5 space-y-5">
+      {/* 会话统计 */}
+      <div>
+        <div className="flex items-center gap-1.5 mb-3">
+          <Zap className="h-3.5 w-3.5 text-muted-foreground" />
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">会话统计</h3>
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-center">
+            <p className="text-lg font-semibold tabular-nums">{sessions.length}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">会话数</p>
+          </div>
+          <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-center">
+            <p className="text-lg font-semibold tabular-nums">{formatTokens(totalInput)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">输入 Token</p>
+          </div>
+          <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-center">
+            <p className="text-lg font-semibold tabular-nums">{formatTokens(totalOutput)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">输出 Token</p>
+          </div>
+          <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-center">
+            <p className="text-lg font-semibold tabular-nums">{formatTokens(totalContext)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">上下文 Token</p>
+          </div>
+        </div>
+        {lastActive > 0 && (
+          <p className="text-[10px] text-muted-foreground/60 mt-1.5">
+            最近活跃: {formatRelativeTime(lastActive)}
+          </p>
+        )}
+      </div>
+
+      <Separator />
+
+      {/* MEMORY.md 长期记忆 */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-1.5">
+            <Brain className="h-3.5 w-3.5 text-muted-foreground" />
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">长期记忆 (MEMORY.md)</h3>
+          </div>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={!hasUnsaved || saving}
+            className="h-7 text-xs gap-1"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+            保存
+          </Button>
+        </div>
+        <Textarea
+          value={editContent}
+          onChange={(e) => {
+            setEditContent(e.target.value)
+            setHasUnsaved(e.target.value !== memoryContent)
+          }}
+          className="min-h-[200px] font-mono text-xs leading-relaxed resize-y"
+          placeholder="暂无长期记忆，智能体会在对话中自动积累记忆..."
+        />
+        {hasUnsaved && (
+          <p className="text-[10px] text-amber-600 mt-1">有未保存的修改</p>
+        )}
+      </div>
+
+      <Separator />
+
+      {/* 每日记忆日志 */}
+      <div>
+        <div className="flex items-center gap-1.5 mb-3">
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+            每日记忆 ({dailyFiles.length})
+          </h3>
+        </div>
+        {dailyFiles.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-4 text-center">暂无每日记忆日志</p>
+        ) : (
+          <div className="space-y-1">
+            {dailyFiles.map((file) => {
+              const isExpanded = expandedFile === file.name
+              return (
+                <div key={file.name} className="rounded-md border overflow-hidden">
+                  <button
+                    onClick={() => handleExpand(file.name)}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-accent/50 transition-colors"
+                  >
+                    {isExpanded
+                      ? <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+                      : <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />}
+                    <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="text-xs font-mono flex-1">{file.name}</span>
+                    <span className="text-[10px] text-muted-foreground/60">
+                      {file.size < 1024 ? `${file.size} B` : `${(file.size / 1024).toFixed(1)} KB`}
+                    </span>
+                  </button>
+                  {isExpanded && (
+                    <div className="border-t px-3 py-2 bg-muted/20">
+                      {expandedLoading ? (
+                        <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground justify-center">
+                          <Loader2 className="h-3 w-3 animate-spin" />加载中...
+                        </div>
+                      ) : (
+                        <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto">
+                          {expandedContent || "(空文件)"}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main View ─────────────────────────────────────────────────────────────────
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview",  label: "概览" },
   { id: "sessions",  label: "会话" },
+  { id: "memory",    label: "记忆" },
   { id: "skills",    label: "技能" },
   { id: "cron",      label: "定时任务" },
 ]
@@ -883,6 +1103,9 @@ export function AgentConfigView() {
                 )}
                 {activeTab === "sessions" && (
                   <SessionsTab agent={selectedAgent} refreshTick={refreshTick} />
+                )}
+                {activeTab === "memory" && (
+                  <MemoryTab agent={selectedAgent} refreshTick={refreshTick} />
                 )}
                 {activeTab === "skills" && (
                   <SkillsTab

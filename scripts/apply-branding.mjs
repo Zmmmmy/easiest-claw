@@ -39,7 +39,10 @@ const tpl = readFileSync(resolve(root, 'resources/installer.nsh.template'), 'utf
 const nsh = tpl
   .replace(/\{\{APP_NAME\}\}/g, cfg.appName)
   .replace(/\{\{PRODUCT_NAME\}\}/g, cfg.productName)
-writeFileSync(resolve(root, 'resources/installer.nsh'), nsh)
+// NSIS Unicode 模式需要 UTF-8 BOM 才能正确显示中文 DetailPrint
+const UTF8_BOM = '\uFEFF'
+const nshWithBom = nsh.startsWith(UTF8_BOM) ? nsh : UTF8_BOM + nsh
+writeFileSync(resolve(root, 'resources/installer.nsh'), nshWithBom)
 console.log('✓ resources/installer.nsh')
 
 // ── 3. package.json ──────────────────────────────────────────────────────────

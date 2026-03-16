@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from "react"
-import { Clock, FolderOpen, Loader2, Server, Wrench } from "lucide-react"
+import { Brain, Clock, FolderOpen, Loader2, Server, Wrench } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
@@ -55,6 +55,8 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
   const [cronJobs, setCronJobs] = useState<CronJob[]>([])
   const [defaultModel, setDefaultModel] = useState("")
   const [tools, setTools] = useState<ToolEntry[]>([])
+  const [memorySummary, setMemorySummary] = useState("")
+  const [dailyMemoryCount, setDailyMemoryCount] = useState(0)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -66,13 +68,17 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
     setCronJobs([])
     setDefaultModel("")
     setTools([])
+    setMemorySummary("")
+    setDailyMemoryCount(0)
 
     Promise.all([
       window.ipc.agentsFilesList({ agentId: agent.id }),
       window.ipc.cronList(),
       window.ipc.configGet(),
       window.ipc.toolsCatalog({ agentId: agent.id }),
-    ]).then(([filesRes, cronRes, configRes, toolsRes]) => {
+      window.ipc.agentsFilesGet({ agentId: agent.id, name: "MEMORY.md" }),
+      window.ipc.agentsMemoryList({ agentId: agent.id }),
+    ]).then(([filesRes, cronRes, configRes, toolsRes, memoryRes, dailyRes]) => {
       if (filesRes.ok) {
         const r = filesRes.result as { workspace?: string; files?: FileEntry[] }
         setWorkspace(r.workspace ?? "")
@@ -99,6 +105,17 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
         } else if (Array.isArray(r.groups)) {
           setTools(r.groups.flatMap((g) => g.tools ?? []))
         }
+      }
+      // MEMORY.md content summary
+      if (memoryRes.ok) {
+        const content = (memoryRes.result as { content?: string })?.content ?? ""
+        // Take first ~300 chars as summary
+        setMemorySummary(content.slice(0, 300))
+      }
+      // Daily memory file count
+      if (dailyRes.ok) {
+        const list = (dailyRes as { ok: true; files: unknown[] }).files ?? []
+        setDailyMemoryCount(list.length)
       }
     }).finally(() => setLoading(false))
   }, [open, agent])
@@ -159,6 +176,28 @@ export function AgentInfoSheet({ agent, open, onOpenChange }: AgentInfoSheetProp
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">暂无工具数据</p>
+              )}
+            </Section>
+
+            {/* 记忆 */}
+            <Section icon={<Brain className="h-3.5 w-3.5" />} title="记忆">
+              {memorySummary ? (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-6 leading-relaxed">
+                    {memorySummary}{memorySummary.length >= 300 ? "..." : ""}
+                  </p>
+                  {dailyMemoryCount > 0 && (
+                    <p className="text-[11px] text-muted-foreground/70">
+                      {dailyMemoryCount} 条每日记忆
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {dailyMemoryCount > 0
+                    ? `${dailyMemoryCount} 条每日记忆`
+                    : "暂无记忆数据"}
+                </p>
               )}
             </Section>
 

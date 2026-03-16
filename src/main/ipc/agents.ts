@@ -1,7 +1,24 @@
 import { randomBytes } from 'node:crypto'
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { IpcMain } from 'electron'
 import { gw } from './gw'
+
+// ── Workspace path cache (per agentId) ──────────────────────────────────────
+// agents.files.list is cheap but called often; cache workspace dir for 60s.
+const workspaceCache = new Map<string, { workspace: string; expiresAt: number }>()
+
+async function resolveWorkspaceDir(agentId: string): Promise<string | null> {
+  const cached = workspaceCache.get(agentId)
+  if (cached && cached.expiresAt > Date.now()) return cached.workspace
+
+  const res = await gw<{ workspace?: string }>('agents.files.list', { agentId })
+  const workspace = res.ok ? (res.result as { workspace?: string })?.workspace ?? null : null
+  if (workspace) {
+    workspaceCache.set(agentId, { workspace, expiresAt: Date.now() + 60_000 })
+  }
+  return workspace
+}
 
 export const registerAgentHandlers = (ipcMain: IpcMain): void => {
   ipcMain.handle('agents:list', async () => {
@@ -85,5 +102,64 @@ export const registerAgentHandlers = (ipcMain: IpcMain): void => {
 
   ipcMain.handle('system:status', async () => {
     return gw('status', {})
+  })
+
+  // ── Memory directory listing (filesystem-based, gateway doesn't expose this) ─
+  ipcMain.handle('agents:memory:list', async (_event, params: { agentId: string }) => {
+    const workspace = await resolveWorkspaceDir(params.agentId)
+    if (!workspace) return { ok: false, error: 'Cannot resolve workspace path' }
+
+    const memoryDir = path.join(workspace, 'memory')
+    try {
+      const entries = await fs.readdir(memoryDir, { withFileTypes: true })
+      const files: Array<{ name: string; size: number; updatedAtMs: number }> = []
+
+      const statPromises = entries
+        .filter(e => e.isFile() && e.name.endsWith('.md'))
+        .map(async (e) => {
+          const stat = await fs.stat(path.join(memoryDir, e.name))
+          return { name: e.name, size: stat.size, updatedAtMs: stat.mtimeMs }
+        })
+
+      files.push(...await Promise.all(statPromises))
+      // Sort by name descending (YYYY-MM-DD.md → newest first)
+      files.sort((a, b) => b.name.localeCompare(a.name))
+
+      return { ok: true, files }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { ok: true, files: [] }
+      }
+      return { ok: false, error: `Failed to read memory directory: ${(err as Error).message}` }
+    }
+  })
+
+  // Read a file from workspace/memory/ directory
+  ipcMain.handle('agents:memory:get', async (_event, params: { agentId: string; name: string }) => {
+    const workspace = await resolveWorkspaceDir(params.agentId)
+    if (!workspace) return { ok: false, error: 'Cannot resolve workspace path' }
+
+    // Security: only allow .md files and prevent path traversal
+    const name = params.name
+    if (!name || !name.endsWith('.md') || name.includes('..') || path.isAbsolute(name)) {
+      return { ok: false, error: 'Invalid file name' }
+    }
+
+    const filePath = path.join(workspace, 'memory', name)
+    const realPath = await fs.realpath(filePath).catch(() => filePath)
+    const realWorkspace = await fs.realpath(workspace).catch(() => workspace)
+    if (!realPath.startsWith(realWorkspace)) {
+      return { ok: false, error: 'Path escapes workspace' }
+    }
+
+    try {
+      const content = await fs.readFile(filePath, 'utf8')
+      return { ok: true, content }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { ok: true, content: '' }
+      }
+      return { ok: false, error: `Failed to read file: ${(err as Error).message}` }
+    }
   })
 }

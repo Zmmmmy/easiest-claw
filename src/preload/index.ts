@@ -114,6 +114,10 @@ const ipcApi = {
     ipcRenderer.invoke('agents:files:get', params),
   agentsFilesSet: (params: { agentId: string; name: string; content: string }) =>
     ipcRenderer.invoke('agents:files:set', params),
+  agentsMemoryList: (params: { agentId: string }) =>
+    ipcRenderer.invoke('agents:memory:list', params),
+  agentsMemoryGet: (params: { agentId: string; name: string }) =>
+    ipcRenderer.invoke('agents:memory:get', params),
   agentIdentityGet: (params: { agentId?: string; sessionKey?: string }) =>
     ipcRenderer.invoke('agent:identity:get', params),
   toolsCatalog: (params: { agentId?: string; sessionKey?: string }) =>

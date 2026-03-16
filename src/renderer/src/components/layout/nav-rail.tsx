@@ -152,6 +152,14 @@ export function NavRail() {
         onChange={handleUserAvatarChange}
       />
 
+      {/* macOS 红绿灯占位区 — 与 conversation-list 对齐 */}
+      {window.ipc.platform === "darwin" && (
+        <div
+          className="h-11 shrink-0"
+          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        />
+      )}
+
       {/* 顶部区域 — h-12，与会话列表头部和聊天头部对齐；设为可拖拽窗口区 */}
       <div
         className="h-12 shrink-0 flex items-center justify-center"

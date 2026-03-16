@@ -11,6 +11,7 @@
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { execSync } from 'node:child_process'
 import { app } from 'electron'
 import { logger } from './logger'
 
@@ -19,23 +20,50 @@ const SKIP_MIGRATE = new Set(['openclaw'])
 
 /**
  * 返回数据存储目录。
- * 优先读取 settings.json 中的 customDataDir，未设置或目录不可用时回退到 Electron 默认 userData。
+ * 优先级：settings.json customDataDir > 注册表 DataDir（安装器写入）> Electron 默认 userData
  */
 export function getDataDir(): string {
   const defaultDir = app.getPath('userData')
+
+  // 1. 读取 settings.json
   try {
     const settingsFile = path.join(defaultDir, 'settings.json')
-    if (!fs.existsSync(settingsFile)) return defaultDir
-    const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, unknown>
-    const custom = settings.customDataDir
-    if (typeof custom !== 'string' || !custom.trim()) return defaultDir
-    const resolved = path.resolve(custom.trim())
-    // 目录必须存在（用户选择时已创建）
-    if (!fs.existsSync(resolved)) return defaultDir
-    return resolved
-  } catch {
-    return defaultDir
+    if (fs.existsSync(settingsFile)) {
+      const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, unknown>
+      const custom = settings.customDataDir
+      if (typeof custom === 'string' && custom.trim()) {
+        const resolved = path.resolve(custom.trim())
+        if (fs.existsSync(resolved)) return resolved
+      }
+    }
+  } catch {}
+
+  // 2. 读取注册表（安装器写入的初始数据目录）
+  if (process.platform === 'win32') {
+    try {
+      const output = execSync('reg query "HKCU\\Software\\EasiestClaw" /v DataDir', { encoding: 'utf8' })
+      const match = /DataDir\s+REG_SZ\s+(.+)/.exec(output)
+      if (match?.[1]) {
+        const regPath = match[1].trim()
+        if (regPath && fs.existsSync(regPath)) {
+          // 首次启动：将注册表路径写入 settings.json
+          try {
+            const settingsFile = path.join(defaultDir, 'settings.json')
+            let settings: Record<string, unknown> = {}
+            if (fs.existsSync(settingsFile)) {
+              settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, unknown>
+            }
+            settings.customDataDir = regPath
+            fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8')
+            logger.info(`[DataDir] applied installer data dir: ${regPath}`)
+          } catch {}
+          return regPath
+        }
+      }
+    } catch {}
   }
+
+  return defaultDir
 }
 
 /**

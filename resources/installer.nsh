@@ -7,14 +7,64 @@
 ; 通过 MUI_PAGE_CUSTOMFUNCTION_SHOW 在安装页面显示时写入提示文字，
 ; 因为 electron-builder 的 installSection.nsh 会在 section 开头设 SetDetailsPrint none，
 ; 但 SHOW 回调在 section 执行前触发，此时写入的文字会保留在日志面板中。
+
+Var DataDirDialog
+Var DataDirLabel
+Var DataDirText
+Var DataDirBrowseBtn
+Var DataDirPath
+
 !macro customHeader
   ShowInstDetails nevershow
   ShowUnInstDetails show
 !macroend
 
+!macro customPageAfterChangeDir
+  Page custom DataDirPage DataDirPageLeave
+!macroend
+
+Function DataDirPage
+  nsDialogs::Create 1018
+  Pop $DataDirDialog
+  ${If} $DataDirDialog == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 24u "选择数据存储目录（OpenClaw 运行时数据、缓存等）："
+  Pop $DataDirLabel
+
+  ${NSD_CreateText} 0 28u 85% 12u "$APPDATA\easiest-claw-desktop"
+  Pop $DataDirText
+
+  ${NSD_CreateButton} 87% 27u 13% 14u "浏览..."
+  Pop $DataDirBrowseBtn
+  ${NSD_OnClick} $DataDirBrowseBtn DataDirBrowse
+
+  nsDialogs::Show
+FunctionEnd
+
+Function DataDirBrowse
+  nsDialogs::SelectFolderDialog "选择数据存储目录" "$APPDATA"
+  Pop $0
+  ${If} $0 != error
+    ${NSD_SetText} $DataDirText $0
+  ${EndIf}
+FunctionEnd
+
+Function DataDirPageLeave
+  ${NSD_GetText} $DataDirText $DataDirPath
+FunctionEnd
+
 !macro customInstall
   SetDetailsPrint both
   DetailPrint "程序文件安装完成。"
+
+  ; 写入用户选择的数据目录到注册表
+  ${If} $DataDirPath != ""
+    WriteRegStr HKCU "Software\EasiestClaw" "DataDir" $DataDirPath
+    DetailPrint "数据目录已设置为: $DataDirPath"
+  ${EndIf}
+
   DetailPrint "正在配置 Windows 防火墙规则..."
   DetailPrint "删除旧规则（如存在）..."
   nsExec::ExecToStack 'netsh advfirewall firewall delete rule name="天工AI"'

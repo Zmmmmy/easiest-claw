@@ -57,17 +57,22 @@ const { zipPath, destDir } = workerData
 const zip = new AdmZip(zipPath)
 const entries = zip.getEntries().filter(e => !e.isDirectory)
 const total = entries.length
+const failedEntries = []
 
 ;(async () => {
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i]
-    try { zip.extractEntryTo(entry.entryName, destDir, true, true) } catch (_) {}
+    try {
+      zip.extractEntryTo(entry.entryName, destDir, true, true)
+    } catch (err) {
+      failedEntries.push({ name: entry.entryName, error: err.message })
+    }
     if (i % 80 === 0 || i === entries.length - 1) {
       parentPort.postMessage({ type: 'progress', extracted: i + 1, total, file: entry.entryName })
       await new Promise(r => setImmediate(r))
     }
   }
-  parentPort.postMessage({ type: 'done' })
+  parentPort.postMessage({ type: 'done', failedCount: failedEntries.length, failedEntries: failedEntries.slice(0, 20) })
 })().catch(err => parentPort.postMessage({ type: 'error', message: err.message }))
 `
 
@@ -118,10 +123,15 @@ export async function extractOpenClawIfNeeded(
     currentVersion = app.getVersion()
   }
 
-  // 已解压且版本一致 → 跳过（同时验证目录和入口脚本实际存在，防止 NSIS 升级后目录被清空但标记残留）
-  const entryExists =
+  // 已解压且版本一致 → 跳过（同时验证目录和关键文件实际存在，防止解压不完整）
+  const entryScriptExists =
     existsSync(join(destDir, 'easiest-claw-gateway.mjs')) ||
     existsSync(join(destDir, 'openclaw.mjs'))
+  const distEntryExists = existsSync(join(destDir, 'dist', 'entry.js'))
+  const entryExists = entryScriptExists && distEntryExists
+  if (!distEntryExists && entryScriptExists) {
+    logger.warn('[Extract] openclaw.mjs exists but dist/entry.js missing — forcing re-extraction')
+  }
   if (existsSync(markerPath) && entryExists) {
     try {
       const installedVersion = readFileSync(markerPath, 'utf8').trim()
@@ -184,7 +194,7 @@ export async function extractOpenClawIfNeeded(
           workerData: { zipPath, destDir: extractRoot, admZipPath },
         })
 
-        worker.on('message', (msg: { type: string; extracted?: number; total?: number; file?: string; message?: string }) => {
+        worker.on('message', (msg: { type: string; extracted?: number; total?: number; file?: string; message?: string; failedCount?: number; failedEntries?: { name: string; error: string }[] }) => {
           if (msg.type === 'progress' && msg.extracted !== undefined && msg.total !== undefined) {
             workerProgress[zipPath] = { extracted: msg.extracted, total: msg.total }
             const totalExtracted = Object.values(workerProgress).reduce((s, p) => s + p.extracted, 0)
@@ -192,7 +202,14 @@ export async function extractOpenClawIfNeeded(
             const percent = totalFiles > 0 ? Math.round((totalExtracted / totalFiles) * 100) : 0
             sendProgress(Math.min(percent, 99), msg.file ?? '')
           } else if (msg.type === 'done') {
-            logger.info(`[Extract] worker done: ${zipPath}`)
+            if (msg.failedCount && msg.failedCount > 0) {
+              logger.warn(`[Extract] worker done with ${msg.failedCount} failed entries: ${zipPath}`)
+              for (const f of msg.failedEntries ?? []) {
+                logger.warn(`[Extract]   failed: ${f.name} — ${f.error}`)
+              }
+            } else {
+              logger.info(`[Extract] worker done: ${zipPath}`)
+            }
             resolve()
           } else if (msg.type === 'error') {
             logger.error(`[Extract] worker error (${zipPath}): ${msg.message}`)
@@ -214,6 +231,19 @@ export async function extractOpenClawIfNeeded(
   )
 
   await Promise.all(workerPromises)
+
+  // 验证关键入口文件是否存在（防止解压过程中文件被 Defender 锁住或 IO 失败导致缺失）
+  const criticalFiles = [
+    join(destDir, 'openclaw.mjs'),
+    join(destDir, 'dist', 'entry.js'),
+  ]
+  const missing = criticalFiles.filter(f => !existsSync(f))
+  if (missing.length > 0) {
+    logger.error(`[Extract] critical files missing after extraction: ${missing.join(', ')}`)
+    // 不写入版本标记，下次启动会重新解压
+    sendProgress(100, '')
+    throw new Error(`[Extract] critical files missing: ${missing.map(f => f.split(/[\\/]/).pop()).join(', ')}`)
+  }
 
   // 写入版本标志到 userData（与安装目录分离，更新安装不会删掉它）
   writeFileSync(markerPath, currentVersion)

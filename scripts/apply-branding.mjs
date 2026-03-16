@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
 
-const { default: cfg } = await import(resolve(root, 'app.config.mjs'))
+const { default: cfg } = await import(new URL(`file:///${resolve(root, 'app.config.mjs').replace(/\\/g, '/')}`))
 
 // ── 1. src/shared/branding.ts ────────────────────────────────────────────────
 const brandingTs = [

@@ -12,11 +12,11 @@
 
 export default {
   // ── 应用身份 ────────────────────────────────────────────────────────────────
-  appName:         'EasiestClaw',                    // UI 显示名称
-  appId:           'com.EasiestClaw.desktop',         // 反向域名，需全局唯一
-  productName:     'EasiestClaw',                    // 安装包 / Dock 名称
-  description:     'EasiestClaw Desktop - OpenClaw GUI',
+  appName:         '天工AI',                          // UI 显示名称
+  appId:           'cn.toguide.tiangong',             // 反向域名，需全局唯一
+  productName:     'TianGong',                        // 安装包 / Dock 名称
+  description:     'TianGong',
 
   // ── Windows 防火墙 ───────────────────────────────────────────────────────────
-  firewallRuleName: 'EasiestClaw',                   // Windows Defender 规则名称
+  firewallRuleName: 'TianGong',                       // Windows Defender 规则名称
 }

@@ -1,0 +1,141 @@
+name: Build Company (TianGong)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle Windows Node.js
+        shell: powershell
+        run: |
+          $NODE_VER = "22.12.0"
+          $arch = "win-x64"
+          $url = "https://nodejs.org/dist/v$NODE_VER/node-v$NODE_VER-$arch.zip"
+          Invoke-WebRequest -Uri $url -OutFile node-win.zip
+          Expand-Archive -Path node-win.zip -DestinationPath . -Force
+          $src = "node-v$NODE_VER-$arch"
+          New-Item -ItemType Directory -Force -Path resources/node | Out-Null
+          New-Item -ItemType Directory -Force -Path resources/node/node_modules | Out-Null
+          Copy-Item "$src/node.exe" "resources/node/node.exe"
+          Copy-Item "$src/npm.cmd" "resources/node/npm.cmd"
+          Copy-Item -Recurse "$src/node_modules/npm" "resources/node/node_modules/npm"
+          Remove-Item -Recurse -Force $src, node-win.zip
+
+      - name: Bundle MinGit
+        shell: powershell
+        run: |
+          $GIT_VER = "2.47.0"
+          $url = "https://github.com/git-for-windows/git/releases/download/v$GIT_VER.windows.1/MinGit-$GIT_VER-64-bit.zip"
+          $dest = "resources/git/win"
+          $zip  = "build/mingit.zip"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          New-Item -ItemType Directory -Force -Path (Split-Path $zip) | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          Remove-Item $zip
+          Write-Host "MinGit $GIT_VER bundled OK"
+
+      - name: Bundle OpenClaw
+        run: node scripts/bundle-openclaw.mjs
+        env:
+          npm_config_registry: https://registry.npmjs.org
+
+      - name: Build (electron-vite)
+        run: pnpm run build
+
+      - name: Package NSIS installer
+        run: pnpm exec electron-builder --win --publish never
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: TianGong-win-x64
+          path: dist/*.exe
+          if-no-files-found: error
+
+  build-mac:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate icon.icns
+        run: |
+          mkdir -p icon.iconset
+          sips -z 16   16   resources/icon.png --out icon.iconset/icon_16x16.png
+          sips -z 32   32   resources/icon.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32   32   resources/icon.png --out icon.iconset/icon_32x32.png
+          sips -z 64   64   resources/icon.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128  128  resources/icon.png --out icon.iconset/icon_128x128.png
+          sips -z 256  256  resources/icon.png --out icon.iconset/icon_128x128@2x.png
+          sips -z 256  256  resources/icon.png --out icon.iconset/icon_256x256.png
+          sips -z 512  512  resources/icon.png --out icon.iconset/icon_256x256@2x.png
+          sips -z 512  512  resources/icon.png --out icon.iconset/icon_512x512.png
+          sips -z 1024 1024 resources/icon.png --out icon.iconset/icon_512x512@2x.png
+          iconutil -c icns icon.iconset -o resources/icon.icns
+          rm -rf icon.iconset
+
+      - name: Bundle macOS Node.js
+        run: |
+          NODE_VER=22.12.0
+          curl -fsSL "https://nodejs.org/dist/v${NODE_VER}/node-v${NODE_VER}-darwin-arm64.tar.gz" \
+            | tar -xz
+          SRC="node-v${NODE_VER}-darwin-arm64"
+          mkdir -p resources/node/lib/node_modules
+          cp "$SRC/bin/node" resources/node/node
+          chmod +x resources/node/node
+          cp -r "$SRC/lib/node_modules/npm" resources/node/lib/node_modules/npm
+          rm -rf "$SRC"
+
+      - name: Bundle OpenClaw
+        run: node scripts/bundle-openclaw.mjs
+        env:
+          npm_config_registry: https://registry.npmjs.org
+
+      - name: Build (electron-vite)
+        run: pnpm run build
+
+      - name: Package DMG
+        run: pnpm exec electron-builder --mac --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: TianGong-mac-arm64
+          path: dist/*.dmg
+          if-no-files-found: error

@@ -47,39 +47,48 @@ async function checkAndPromptDataLocation(): Promise<void> {
     } catch {}
   }
 
-  // 已选择过数据目录，跳过
   if (settings.dataLocationSelected) return
 
-  const result = await dialog.showMessageBox({
-    type: 'question',
-    title: '选择数据存储位置',
-    message: '首次启动需要选择数据存储位置',
-    detail: 'OpenClaw 运行时数据约 500MB，建议选择空间充足的磁盘。\n\n点击"选择目录"可自定义位置，点击"使用默认"将数据存储在系统默认位置。',
-    buttons: ['选择目录', '使用默认'],
-    defaultId: 0,
-    cancelId: 1
-  })
-
-  if (result.response === 0) {
-    const dirResult = await dialog.showOpenDialog({
-      title: '选择数据存储目录',
-      defaultPath: app.getPath('home'),
-      properties: ['openDirectory', 'createDirectory']
+  return new Promise((resolve) => {
+    const win = new BrowserWindow({
+      width: 480,
+      height: 320,
+      frame: false,
+      transparent: true,
+      resizable: false,
+      center: true,
+      show: false,
+      webPreferences: {
+        preload: join(__dirname, '../preload/index.js'),
+        contextIsolation: true
+      }
     })
 
-    if (!dirResult.canceled && dirResult.filePaths[0]) {
-      const customDir = dirResult.filePaths[0]
-      try {
-        mkdirSync(customDir, { recursive: true })
-        settings.customDataDir = customDir
-      } catch {}
-    }
-  }
+    win.loadFile(join(__dirname, 'data-location-prompt.html'))
+    win.once('ready-to-show', () => win.show())
 
-  settings.dataLocationSelected = true
-  try {
-    writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8')
-  } catch {}
+    ipcMain.handle('data-location:choose', async () => {
+      const result = await dialog.showOpenDialog(win, {
+        title: '选择数据存储目录',
+        defaultPath: app.getPath('home'),
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (!result.canceled && result.filePaths[0]) {
+        settings.customDataDir = result.filePaths[0]
+      }
+      settings.dataLocationSelected = true
+      writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8')
+      win.close()
+      resolve()
+    })
+
+    ipcMain.handle('data-location:default', () => {
+      settings.dataLocationSelected = true
+      writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8')
+      win.close()
+      resolve()
+    })
+  })
 }
 
 // ── 单实例锁 ──────────────────────────────────────────────────────────────────

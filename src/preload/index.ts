@@ -269,5 +269,11 @@ const ipcApi = {
 
 contextBridge.exposeInMainWorld('ipc', ipcApi)
 
+// Data location prompt API
+contextBridge.exposeInMainWorld('electronAPI', {
+  chooseDir: () => ipcRenderer.invoke('data-location:choose'),
+  useDefault: () => ipcRenderer.invoke('data-location:default')
+})
+
 // TypeScript type augmentation — declare in renderer via window.ipc
 export type IpcApi = typeof ipcApi

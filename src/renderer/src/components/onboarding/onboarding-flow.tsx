@@ -213,7 +213,7 @@ function GatewayLoadingStep() {
           {isReady ? (
             <Wifi className="h-8 w-8 text-green-500 animate-pulse" />
           ) : (
-            <Loader2 className="h-8 w-8 text-primary animate-spin" />
+            <div className="h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
           )}
           <p className="text-sm font-medium text-foreground">
             {isReady

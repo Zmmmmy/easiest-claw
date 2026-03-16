@@ -127,6 +127,36 @@ export async function migrateDataDirIfNeeded(): Promise<void> {
 
   logger.info(`[Migrate] done — migrated: ${migratedCount}, errors: ${errorCount}`)
 
+  // 清理旧目录：删除 openclaw/（不迁移的大目录）和其他残留
+  const isDefaultDir = path.resolve(srcDir) === path.resolve(defaultDir)
+
+  // 删除跳过迁移的目录（如 openclaw/）
+  for (const skip of SKIP_MIGRATE) {
+    const skipPath = path.join(srcDir, skip)
+    try {
+      if (fs.existsSync(skipPath)) {
+        await fsp.rm(skipPath, { recursive: true, force: true })
+        logger.info(`[Migrate] removed skipped dir: ${skip}`)
+      }
+    } catch (err) {
+      logger.warn(`[Migrate] failed to remove ${skip}: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  if (isDefaultDir) {
+    // 旧目录是 Electron 默认 userData — settings.json 必须保留，只清理数据文件
+    // 上面 rename/copy 已经逐个移走了，openclaw/ 也已删除，无需额外操作
+    logger.info('[Migrate] source is default userData, keeping directory (settings.json lives here)')
+  } else {
+    // 旧目录是用户自定义目录，整个删除
+    try {
+      await fsp.rm(srcDir, { recursive: true, force: true })
+      logger.info(`[Migrate] removed old custom data dir: ${srcDir}`)
+    } catch (err) {
+      logger.warn(`[Migrate] failed to remove old dir: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
   // 清除迁移标记
   await clearMigrateFlag(settingsFile, settings)
 }

@@ -93,6 +93,11 @@ export function OpenclawView() {
 
     useEffect(() => { loadEnv() }, [])
 
+    // 连接状态变化时重新检测环境（更新 running 状态）
+    useEffect(() => {
+        if (connStatus === 'connected') loadEnv()
+    }, [connStatus])
+
     // 订阅安装进度
     useEffect(() => {
         const unsub = window.ipc.onInstallProgress(({step, status, detail}) => {

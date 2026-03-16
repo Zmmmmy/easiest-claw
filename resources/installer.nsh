@@ -101,13 +101,27 @@ FunctionEnd
   ; 升级安装时，新安装包会静默（/S）调用旧版卸载程序，此时跳过用户数据清理弹窗
   IfSilent done
 
-  ; 手动卸载时才询问用户是否同时清除 AppData 中的用户设置与数据
+  ; 手动卸载时才询问用户是否同时清除用户数据
   MessageBox MB_YESNO|MB_ICONQUESTION \
-    "是否同时删除 EasiestClaw 的用户设置和缓存数据？$\n$\n\
-选择「是」将彻底清除（AppData\Roaming\EasiestClaw），$\n\
-选择「否」则保留，重新安装后可自动恢复设置。" \
+    "是否同时删除用户设置和数据？$\n$\n\
+选择「是」将彻底清除所有数据（包括配置、缓存和 OpenClaw 运行时），$\n\
+选择「否」则保留，重新安装后可自动恢复。" \
     IDNO done
-  RMDir /r "$APPDATA\EasiestClaw"
-  DetailPrint "用户数据已清除。"
+
+  ; 删除默认 userData 目录
+  RMDir /r "$APPDATA\easiest-claw-desktop"
+  DetailPrint "默认用户数据已清除。"
+
+  ; 删除自定义数据目录（从注册表读取）
+  ReadRegStr $0 HKCU "Software\EasiestClaw" "DataDir"
+  ${If} $0 != ""
+    RMDir /r "$0"
+    DetailPrint "自定义数据目录已清除: $0"
+  ${EndIf}
+
+  ; 清理注册表
+  DeleteRegKey HKCU "Software\EasiestClaw"
+  DetailPrint "用户数据已全部清除。"
+
   done:
 !macroend

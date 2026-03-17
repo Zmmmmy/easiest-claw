@@ -100,6 +100,7 @@ function SelectContent({
           className
         )}
         position={position}
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
         {...props}
       >
         <SelectScrollUpButton />

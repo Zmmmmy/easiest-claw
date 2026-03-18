@@ -1,6 +1,6 @@
 {
   "name": "easiest-claw-desktop",
-  "version": "0.0.27-beta",
+  "version": "0.0.30-beta",
   "description": "TianGong",
   "main": "./out/main/index.js",
   "private": true,
@@ -11,6 +11,8 @@
     "brand": "node scripts/apply-branding.mjs",
     "release": "node scripts/release.mjs",
     "bundle:openclaw": "node scripts/bundle-openclaw.mjs",
+    "pack:openclaw-upgrade": "node scripts/pack-openclaw-upgrade.mjs",
+    "publish:openclaw-upgrade": "node scripts/publish-openclaw-upgrade.mjs",
     "build:win": "npm run bundle:openclaw && npm run build && electron-builder --win",
     "build:mac": "npm run bundle:openclaw && npm run build && electron-builder --mac",
     "build:linux": "npm run bundle:openclaw && npm run build && electron-builder --linux",

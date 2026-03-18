@@ -61,7 +61,46 @@ export const registerAgentHandlers = (ipcMain: IpcMain): void => {
   })
 
   ipcMain.handle('agents:update', async (_event, params: { agentId: string; name?: string; workspace?: string; model?: string; avatar?: string }) => {
-    return gw('agents.update', params)
+    const res = await gw('agents.update', params)
+    if (res.ok) return res
+
+    // Fallback: if the default "main" agent is implicit (not yet in config),
+    // gateway returns "agent not found". Materialise it in openclaw.json so the
+    // update succeeds.
+    const errMsg = typeof (res as { error?: string }).error === 'string' ? (res as { error: string }).error : ''
+    if (params.agentId === 'main' && errMsg.includes('not found')) {
+      try {
+        const { readOpenclawConfig, writeOpenclawConfig, isRecord } = await import('../lib/openclaw-config')
+        const config = readOpenclawConfig()
+        if (!isRecord(config.agents)) config.agents = {}
+        const agentsObj = config.agents as Record<string, unknown>
+        if (!Array.isArray(agentsObj.list)) agentsObj.list = []
+        const list = agentsObj.list as Record<string, unknown>[]
+
+        // Add "main" entry if missing
+        const idx = list.findIndex((a) => isRecord(a) && a.id === 'main')
+        const entry: Record<string, unknown> = idx >= 0 ? { ...list[idx] } : { id: 'main' }
+        if (params.name) entry.name = params.name
+        if (params.workspace) entry.workspace = params.workspace
+        if (params.model) entry.model = params.model
+
+        if (idx >= 0) {
+          list[idx] = entry
+        } else {
+          list.push(entry)
+        }
+
+        writeOpenclawConfig(config)
+
+        // Retry gateway call now that the agent exists in config
+        const retry = await gw('agents.update', params)
+        return retry.ok ? retry : { ok: true, result: entry }
+      } catch {
+        return res
+      }
+    }
+
+    return res
   })
 
   ipcMain.handle('agents:delete', async (_event, params: { agentId: string }) => {

@@ -151,6 +151,23 @@
   "typingIndicator": {
     "thinking": "{{name}} is thinking..."
   },
+  "contentBlocks": {
+    "thinking": "Thinking",
+    "thinkingRedacted": "Content redacted",
+    "toolCall": "Tool Call",
+    "toolResult": "Result",
+    "toolError": "Error",
+    "arguments": "Arguments"
+  },
+  "sessionHistory": {
+    "title": "Session History",
+    "historyMessages": "Messages",
+    "current": "Current",
+    "noSessions": "No session history",
+    "loadingHistory": "Loading...",
+    "empty": "No messages in this session",
+    "archived": "Archived"
+  },
   "messageBubble": {
     "taskStatus": {
       "completed": "Completed",
@@ -196,7 +213,8 @@
       "videoCall": "Video call",
       "searchMessages": "Search messages",
       "membersList": "Member list",
-      "workspace": "Workspace"
+      "workspace": "Workspace",
+      "sessionHistory": "Session History"
     },
     "menu": {
       "viewProfile": "View profile",
@@ -469,12 +487,16 @@
     "by": "by",
     "downloads": "downloads",
     "explore": "Trending",
-    "exploreHint": "Search for skills on ClawHub marketplace",
+    "exploreHint": "Search for skills on Skills.sh marketplace",
     "marketplaceError": "Failed to fetch marketplace data",
-    "openClawHub": "Browse ClawHub",
+    "openClawHub": "Browse Skills.sh",
     "changelog": "Changelog",
-    "viewOnClawHub": "View on ClawHub",
+    "viewOnClawHub": "View on Skills.sh",
     "malwareBlocked": "This skill has been blocked for malware",
-    "suspicious": "This skill has been flagged as suspicious"
+    "suspicious": "This skill has been flagged as suspicious",
+    "searchInstalled": "Search installed skills...",
+    "detailTitle": "Skill details",
+    "files": "Files",
+    "noFiles": "No files found"
   }
 }

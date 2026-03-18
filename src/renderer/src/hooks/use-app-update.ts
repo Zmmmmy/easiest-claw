@@ -18,7 +18,7 @@ export function useAppUpdate(): void {
       if (s.status === 'available' && s.version) {
         toast.info(`发现新版本 v${s.version}`, {
           id: UPDATE_TOAST_ID,
-          duration: Infinity,
+          duration: 5_000,
           description: '前往设置 → 关于 下载安装',
         })
       }

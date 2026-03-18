@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  ChevronRight,
   Download,
   ExternalLink,
+  FileText,
+  FolderOpen,
   Loader2,
   Puzzle,
   RefreshCw,
   Search,
-  Star,
   Store,
+  TrendingUp,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -32,6 +35,7 @@ interface Skill {
   version?: string
   enabled: boolean
   source?: string
+  baseDir?: string
   install?: { id?: string; kind: string; label?: string }[]
 }
 
@@ -72,6 +76,7 @@ export function parseSkillsResult(raw: unknown): Skill[] {
         version: typeof sk.version === "string" ? sk.version : undefined,
         enabled: typeof sk.enabled === "boolean" ? sk.enabled : true,
         source: typeof sk.source === "string" ? sk.source : undefined,
+        baseDir: typeof sk.baseDir === "string" ? sk.baseDir : undefined,
         install: Array.isArray(sk.install) ? (sk.install as Skill["install"]) : undefined,
       }
     })
@@ -82,37 +87,23 @@ function parseMarketplaceItems(raw: unknown[]): MarketplaceSkill[] {
   return raw
     .map((item) => {
       const r = item as Record<string, unknown>
-      const stats = r.stats as Record<string, unknown> | undefined
-      const latestVersion = r.latestVersion as Record<string, unknown> | undefined
+      // skills.sh format: { skillId, source, name, installs, change, description }
+      const skillId = typeof r.skillId === "string" ? r.skillId : typeof r.slug === "string" ? r.slug : ""
+      const source = typeof r.source === "string" ? r.source : undefined
       return {
-        slug: typeof r.slug === "string" ? r.slug : "",
-        displayName: typeof r.displayName === "string" ? r.displayName : undefined,
+        slug: skillId,
+        displayName: typeof r.name === "string" && r.name !== skillId ? r.name : undefined,
         name: typeof r.name === "string" ? r.name : undefined,
-        description:
-          typeof r.description === "string"
-            ? r.description
-            : typeof r.summary === "string"
-              ? r.summary
-              : undefined,
-        version:
-          typeof r.version === "string"
-            ? r.version
-            : typeof latestVersion?.version === "string"
-              ? latestVersion.version
-              : undefined,
-        score: typeof r.score === "number" ? r.score : undefined,
-        author: typeof r.author === "string" ? r.author : undefined,
-        downloads:
-          typeof r.downloads === "number"
-            ? r.downloads
-            : typeof stats?.downloads === "number"
-              ? stats.downloads
-              : undefined,
-        stars: typeof stats?.stars === "number" ? stats.stars : undefined,
-        versions: typeof stats?.versions === "number" ? stats.versions : undefined,
-        changelog: typeof latestVersion?.changelog === "string" ? latestVersion.changelog : undefined,
-        license: typeof latestVersion?.license === "string" ? latestVersion.license : undefined,
-        createdAt: typeof r.createdAt === "number" ? r.createdAt : undefined,
+        description: typeof r.description === "string" ? r.description : undefined,
+        version: undefined,
+        score: undefined,
+        author: source,
+        downloads: typeof r.installs === "number" ? r.installs : undefined,
+        stars: typeof r.change === "number" && r.change > 0 ? r.change : undefined,
+        versions: undefined,
+        changelog: undefined,
+        license: undefined,
+        createdAt: undefined,
       }
     })
     .filter((s) => s.slug)
@@ -205,6 +196,8 @@ function InstalledTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
+  const [detailSkill, setDetailSkill] = useState<Skill | null>(null)
 
   const loadSkills = async () => {
     setLoading(true)
@@ -245,6 +238,17 @@ function InstalledTab() {
     }
   }
 
+  const filtered = useMemo(() => {
+    if (!query.trim()) return skills
+    const q = query.toLowerCase()
+    return skills.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        (s.description ?? "").toLowerCase().includes(q) ||
+        (s.source ?? "").toLowerCase().includes(q)
+    )
+  }, [skills, query])
+
   if (error) {
     return (
       <Card className="p-6 text-center text-sm text-muted-foreground">
@@ -257,72 +261,253 @@ function InstalledTab() {
   }
 
   return (
-    <Card className="p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Puzzle className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold">{t("skills.installed")}</h2>
-        <button
-          onClick={loadSkills}
-          disabled={loading}
-          className="ml-auto text-muted-foreground/50 hover:text-foreground transition-colors disabled:pointer-events-none"
-          title={t("skills.refresh")}
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t("skills.loading")}
+    <>
+      <Card className="p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Puzzle className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">{t("skills.installed")}</h2>
+          <button
+            onClick={loadSkills}
+            disabled={loading}
+            className="ml-auto text-muted-foreground/50 hover:text-foreground transition-colors disabled:pointer-events-none"
+            title={t("skills.refresh")}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+          </button>
         </div>
-      ) : skills.length === 0 ? (
-        <p className="text-xs text-muted-foreground py-4 text-center">
-          {t("skills.noSkills")}
-        </p>
-      ) : (
-        <div className="space-y-0">
-          {skills.map((skill, i) => (
-            <div key={skill.name}>
-              {i > 0 && <Separator className="my-2.5 opacity-40" />}
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{skill.name}</span>
-                    {skill.version && (
-                      <span className="text-[10px] text-muted-foreground">v{skill.version}</span>
-                    )}
-                    {skill.source && (
-                      <span className="text-[10px] text-muted-foreground/50">{skill.source}</span>
+
+        {/* Search bar */}
+        {!loading && skills.length > 0 && (
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
+            <Input
+              placeholder={t("skills.searchInstalled")}
+              className="pl-9 h-8 text-xs"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {t("skills.loading")}
+          </div>
+        ) : skills.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-4 text-center">
+            {t("skills.noSkills")}
+          </p>
+        ) : filtered.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-4 text-center">
+            {t("skills.noResults")}
+          </p>
+        ) : (
+          <div className="space-y-0">
+            {filtered.map((skill, i) => (
+              <div key={skill.name}>
+                {i > 0 && <Separator className="my-2.5 opacity-40" />}
+                <div
+                  className="flex items-center justify-between gap-3 cursor-pointer hover:bg-accent/30 rounded-md -mx-2 px-2 py-1.5 transition-colors"
+                  onClick={() => setDetailSkill(skill)}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{skill.name}</span>
+                      {skill.version && (
+                        <span className="text-[10px] text-muted-foreground">v{skill.version}</span>
+                      )}
+                      {skill.source && (
+                        <span className="text-[10px] text-muted-foreground/50">{skill.source}</span>
+                      )}
+                    </div>
+                    {skill.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{skill.description}</p>
                     )}
                   </div>
-                  {skill.description && (
-                    <p className="text-xs text-muted-foreground mt-0.5">{skill.description}</p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleToggle(skill.name, !skill.enabled) }}
+                      disabled={toggling === skill.name}
+                      className={cn(
+                        "shrink-0 w-9 h-5 rounded-full transition-colors relative",
+                        skill.enabled ? "bg-primary" : "bg-muted-foreground/30",
+                        toggling === skill.name && "opacity-50 cursor-not-allowed"
+                      )}
+                      title={skill.enabled ? t("skills.disable") : t("skills.enable")}
+                    >
+                      <span
+                        className={cn(
+                          "absolute top-[2px] h-4 w-4 rounded-full bg-white shadow-sm transition-all duration-200",
+                          skill.enabled ? "left-[18px]" : "left-[2px]"
+                        )}
+                      />
+                    </button>
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Installed Skill Detail Dialog */}
+      <InstalledSkillDetail
+        skill={detailSkill}
+        onClose={() => setDetailSkill(null)}
+      />
+    </>
+  )
+}
+
+// ── Installed Skill Detail Dialog ────────────────────────────────────────
+
+interface SkillFile { name: string; size: number; isDir: boolean }
+
+function InstalledSkillDetail({
+  skill,
+  onClose,
+}: {
+  skill: Skill | null
+  onClose: () => void
+}) {
+  const { t } = useI18n()
+  const [files, setFiles] = useState<SkillFile[]>([])
+  const [loadingFiles, setLoadingFiles] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [fileContent, setFileContent] = useState<string | null>(null)
+  const [loadingContent, setLoadingContent] = useState(false)
+
+  useEffect(() => {
+    if (!skill) {
+      setFiles([])
+      setSelectedFile(null)
+      setFileContent(null)
+      return
+    }
+    setLoadingFiles(true)
+    setSelectedFile(null)
+    setFileContent(null)
+    window.ipc.skillFiles(skill.name, undefined, skill.baseDir).then((res) => {
+      if ((res as { ok: boolean }).ok) {
+        setFiles((res as { ok: true; files: SkillFile[] }).files ?? [])
+      }
+      setLoadingFiles(false)
+    })
+  }, [skill])
+
+  const handleFileClick = async (fileName: string) => {
+    if (!skill) return
+    setSelectedFile(fileName)
+    setLoadingContent(true)
+    setFileContent(null)
+    try {
+      const res = await window.ipc.skillFiles(skill.name, fileName, skill.baseDir)
+      if ((res as { ok: boolean }).ok) {
+        setFileContent((res as { ok: true; content: string }).content ?? "")
+      } else {
+        setFileContent(`Error: ${(res as { ok: false; error: string }).error}`)
+      }
+    } catch (e) {
+      setFileContent(`Error: ${String(e)}`)
+    } finally {
+      setLoadingContent(false)
+    }
+  }
+
+  const regularFiles = files.filter((f) => !f.isDir)
+
+  return (
+    <Dialog open={!!skill} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        showCloseButton={false}
+        className="sm:max-w-xl max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden"
+      >
+        {skill && (
+          <>
+            {/* Header */}
+            <div className="shrink-0 px-5 pt-5 pb-3 space-y-1">
+              <DialogTitle className="text-base font-semibold leading-tight">
+                {skill.name}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                {skill.description ?? t("skills.detailTitle")}
+              </DialogDescription>
+              {(skill.version || skill.source) && (
+                <div className="flex items-center gap-3 text-[10px] text-muted-foreground/60 pt-1">
+                  {skill.version && <span>v{skill.version}</span>}
+                  {skill.source && <span>{skill.source}</span>}
+                </div>
+              )}
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto border-t">
+              {loadingFiles ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground p-5">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t("skills.loading")}
+                </div>
+              ) : regularFiles.length === 0 ? (
+                <p className="text-xs text-muted-foreground p-5 text-center">
+                  {t("skills.noFiles")}
+                </p>
+              ) : (
+                <div className="divide-y">
+                  {/* File list */}
+                  <div className="px-5 py-3">
+                    <h4 className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                      <FolderOpen className="h-3 w-3" />
+                      {t("skills.files")} ({regularFiles.length})
+                    </h4>
+                    <div className="space-y-0.5">
+                      {regularFiles.map((f) => (
+                        <button
+                          key={f.name}
+                          onClick={() => handleFileClick(f.name)}
+                          className={cn(
+                            "w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors",
+                            selectedFile === f.name
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-foreground/80 hover:bg-accent/50"
+                          )}
+                        >
+                          <FileText className="h-3 w-3 shrink-0 opacity-60" />
+                          <span className="truncate flex-1 font-mono">{f.name}</span>
+                          <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                            {f.size > 1024 ? `${(f.size / 1024).toFixed(1)}KB` : `${f.size}B`}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* File content viewer */}
+                  {selectedFile && (
+                    <div className="px-5 py-3">
+                      <h4 className="text-xs font-medium text-muted-foreground mb-2 font-mono">
+                        {selectedFile}
+                      </h4>
+                      {loadingContent ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground py-3">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          {t("skills.loading")}
+                        </div>
+                      ) : (
+                        <pre className="text-xs text-foreground/80 whitespace-pre-wrap break-words bg-muted/40 rounded-lg p-3 leading-relaxed max-h-72 overflow-y-auto font-mono">
+                          {fileContent}
+                        </pre>
+                      )}
+                    </div>
                   )}
                 </div>
-                <button
-                  onClick={() => handleToggle(skill.name, !skill.enabled)}
-                  disabled={toggling === skill.name}
-                  className={cn(
-                    "shrink-0 w-9 h-5 rounded-full transition-colors relative",
-                    skill.enabled ? "bg-primary" : "bg-muted-foreground/30",
-                    toggling === skill.name && "opacity-50 cursor-not-allowed"
-                  )}
-                  title={skill.enabled ? t("skills.disable") : t("skills.enable")}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-[2px] h-4 w-4 rounded-full bg-white shadow-sm transition-all duration-200",
-                      skill.enabled ? "left-[18px]" : "left-[2px]"
-                    )}
-                  />
-                </button>
-              </div>
+              )}
             </div>
-          ))}
-        </div>
-      )}
-    </Card>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -530,7 +715,7 @@ function MarketplaceTab({ hidden }: { hidden?: boolean }) {
                 variant="link"
                 size="sm"
                 className="text-[10px] h-auto p-0 text-muted-foreground/60"
-                onClick={() => window.open("https://clawhub.ai", "_blank")}
+                onClick={() => window.open("https://skills.sh", "_blank")}
               >
                 <ExternalLink className="h-3 w-3 mr-0.5" />
                 {t("skills.openClawHub")}
@@ -598,13 +783,10 @@ function MarketplaceTab({ hidden }: { hidden?: boolean }) {
                             v{skill.version}
                           </span>
                         )}
-                        {skill.score != null && (
-                          <span className="text-[10px] text-muted-foreground/60">
-                            {t("skills.score")}: {(skill.score * 100).toFixed(0)}%
-                          </span>
-                        )}
                       </div>
-                      <p className="text-xs text-muted-foreground/80 mt-0.5">{skill.slug}</p>
+                      <p className="text-xs text-muted-foreground/80 mt-0.5">
+                        {skill.author ? skill.author : skill.slug}
+                      </p>
                       {skill.description && (
                         <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">
                           {skill.description}
@@ -618,8 +800,8 @@ function MarketplaceTab({ hidden }: { hidden?: boolean }) {
                         )}
                         {skill.stars != null && skill.stars > 0 && (
                           <span className="flex items-center gap-0.5">
-                            <Star className="h-2.5 w-2.5" />
-                            {skill.stars.toLocaleString()}
+                            <TrendingUp className="h-2.5 w-2.5" />
+                            +{skill.stars.toLocaleString()}
                           </span>
                         )}
                       </div>
@@ -670,7 +852,7 @@ function MarketplaceTab({ hidden }: { hidden?: boolean }) {
           {/* End of list indicator */}
           {!loading && !loadingMore && !isSearchMode && results.length > 0 && !nextCursor && (
             <p className="text-center text-[10px] text-muted-foreground/40 py-4">
-              — {t("skills.noResults").replace(/^.*$/, "·")} —
+              — · —
             </p>
           )}
         </div>
@@ -780,8 +962,8 @@ function SkillDetailDialog({
                   )}
                   {skill.stars != null && skill.stars > 0 && (
                     <span className="flex items-center gap-1">
-                      <Star className="h-3 w-3" />
-                      {skill.stars.toLocaleString()}
+                      <TrendingUp className="h-3 w-3" />
+                      +{skill.stars.toLocaleString()}
                     </span>
                   )}
                   {skill.versions != null && (
@@ -810,7 +992,12 @@ function SkillDetailDialog({
                   size="sm"
                   className="w-full text-xs gap-1.5"
                   onClick={() =>
-                    window.open(`https://clawhub.ai/skills/${skill.slug}`, "_blank")
+                    window.open(
+                      skill.author
+                        ? `https://skills.sh/${skill.author}/${skill.slug}`
+                        : `https://skills.sh`,
+                      "_blank"
+                    )
                   }
                 >
                   <ExternalLink className="h-3 w-3" />

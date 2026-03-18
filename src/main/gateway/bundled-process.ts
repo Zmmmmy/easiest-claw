@@ -284,10 +284,11 @@ export async function stopGatewayGracefully(timeoutMs = 5000): Promise<void> {
   autoRestartCount = MAX_AUTO_RESTARTS
 
   await new Promise<void>((resolve) => {
-    let exited = false
+    let settled = false
 
     const onExit = () => {
-      exited = true
+      if (settled) return
+      settled = true
       clearTimeout(forceKillTimer)
       resolve()
     }
@@ -299,22 +300,23 @@ export async function stopGatewayGracefully(timeoutMs = 5000): Promise<void> {
 
     // Phase 2: 超时后强制杀死
     const forceKillTimer = setTimeout(() => {
-      if (!exited) {
-        logger.warn(`[Gateway] not exited within ${timeoutMs}ms, force-killing (pid=${pid ?? 'unknown'})`)
-        console.warn(`[Gateway] force-killing pid=${pid ?? 'unknown'}`)
-        if (pid) {
-          try {
-            if (process.platform === 'win32') {
-              // Windows: taskkill /F /T 终止进程树
-              spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true })
-                .on('error', () => {})
-            } else {
-              process.kill(pid, 'SIGKILL')
-            }
-          } catch {}
-        }
-        resolve()
+      if (settled) return
+      settled = true
+      child.removeListener('exit', onExit)
+      logger.warn(`[Gateway] not exited within ${timeoutMs}ms, force-killing (pid=${pid ?? 'unknown'})`)
+      console.warn(`[Gateway] force-killing pid=${pid ?? 'unknown'}`)
+      if (pid) {
+        try {
+          if (process.platform === 'win32') {
+            // Windows: taskkill /F /T 终止进程树
+            spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { windowsHide: true })
+              .on('error', () => {})
+          } else {
+            process.kill(pid, 'SIGKILL')
+          }
+        } catch {}
       }
+      resolve()
     }, timeoutMs)
   })
 
@@ -503,13 +505,33 @@ export async function restartBundledGateway(): Promise<boolean> {
   autoRestartCount = 0
   forkOpenclawGateway(entryScript, openclawDir, token, true)
 
-  const ready = await waitForGatewayReady(90_000)
+  // 同时等端口就绪和进程退出——如果进程提前崩溃不必等 90s
+  const proc = gatewayProcess
+  const ready = await Promise.race([
+    waitForGatewayReady(90_000),
+    // 进程提前退出 → 立即判定失败
+    ...(proc ? [new Promise<false>((resolve) => {
+      proc.once('exit', (code) => {
+        logger.warn(`[RestartBundled] process exited early, code=${code}`)
+        // 收集最近的 stderr 日志帮助诊断
+        const recentErrors = _gatewayLogBuffer
+          .filter(l => l.isError)
+          .slice(-5)
+          .map(l => l.line)
+          .join('\n')
+        if (recentErrors) {
+          logger.error(`[RestartBundled] recent stderr:\n${recentErrors}`)
+        }
+        resolve(false)
+      })
+    })] : []),
+  ])
   if (ready) {
     logger.info('[RestartBundled] gateway ready')
     console.log('[RestartBundled] gateway ready')
   } else {
-    logger.warn('[RestartBundled] gateway not ready within 90s')
-    console.warn('[RestartBundled] gateway not ready within 90s')
+    logger.warn('[RestartBundled] gateway not ready (exited early or 90s timeout)')
+    console.warn('[RestartBundled] gateway not ready')
   }
   return ready
 }

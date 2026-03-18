@@ -26,6 +26,56 @@
 
 ---
 
+## [0.0.30-beta] - 2026-03-18
+
+### 新增
+
+- OpenClaw 内核升级包打包脚本（`pack-openclaw-upgrade`）和发布脚本（`publish-openclaw-upgrade`）
+
+### 修复
+
+- 重写 OpenClaw 内核升级流程：从 npm install 改为 GitHub Release zip 下载解压，彻底解决无外网环境升级失败问题
+- 修复 Gateway 停止时 `stopGatewayGracefully` 双重 resolve 竞态
+- 修复 `restartBundledGateway` 未检测进程提前退出的问题
+- 修复 CommandDialog 弹框未居中显示
+
+---
+
+---
+
+## [0.0.29-beta] - 2026-03-18
+
+### 修复
+
+- 修复压缩上下文提示一直不消失的问题（改为 10 秒自动关闭，支持手动关闭）
+
+---
+
+---
+
+## [0.0.28-beta] - 2026-03-18
+
+### 新增
+
+- 技能市场接入 Skills.sh，支持浏览热门技能、搜索和一键安装
+- 已安装技能列表新增搜索过滤功能
+- 已安装技能详情弹窗，可查看技能文件及内容
+- 聊天消息支持展示思考过程（thinking blocks）和工具调用详情
+- 新增历史会话面板，可浏览和切换过往会话
+
+### 修复
+
+- 修复首次安装时重命名默认 Agent 报错 `agent "main" not found`
+- 修复内置/bundled 技能无法查看文件的问题
+
+### 变更
+
+- 技能市场数据源从 ClawHub API 迁移至 Skills.sh
+
+---
+
+---
+
 ## [0.0.27-beta] - 2026-03-17
 
 ### 修复

@@ -91,8 +91,14 @@ const ipcApi = {
   chatHistory: (params: { agentId: string; sessionKey?: string }) =>
     ipcRenderer.invoke('chat:history', params),
 
+  chatHistoryFull: (params: { agentId: string; sessionKey?: string; sessionId?: string }) =>
+    ipcRenderer.invoke('chat:history:full', params),
+
   sessionsList: (params?: { agentId?: string; includeLastMessage?: boolean; includeDerivedTitles?: boolean; activeMinutes?: number; limit?: number }) =>
     ipcRenderer.invoke('sessions:list', params),
+
+  sessionsListAll: (params: { agentId: string }) =>
+    ipcRenderer.invoke('sessions:list:all', params),
 
   sessionsReset: (params: { sessionKey: string }) =>
     ipcRenderer.invoke('sessions:reset', params),
@@ -191,6 +197,8 @@ const ipcApi = {
   skillsList: () => ipcRenderer.invoke('skills:list'),
   skillsToggle: (name: string, enabled: boolean) =>
     ipcRenderer.invoke('skills:toggle', { name, enabled }),
+  skillFiles: (name: string, readFile?: string, baseDir?: string) =>
+    ipcRenderer.invoke('skills:files', { name, readFile, baseDir }),
   agentSkillsGet: (agentId: string) =>
     ipcRenderer.invoke('openclaw:agent-skills:get', agentId),
   agentSkillsSet: (agentId: string, skills: string[] | null) =>

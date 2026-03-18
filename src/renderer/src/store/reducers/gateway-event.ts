@@ -1,7 +1,7 @@
 import type { AppState } from "../app-types"
 import type { GatewayEvent } from "@/hooks/use-openclaw"
 import type { Message } from "@/types"
-import { extractTextContent, uniqueId, isRecord, resolveAgentIdFromPayload } from "../app-utils"
+import { extractTextContent, extractAssistantContentBlocks, uniqueId, isRecord, resolveAgentIdFromPayload } from "../app-utils"
 
 export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppState {
   if (event.type !== "gateway.event") return state
@@ -78,6 +78,41 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
 
     if (role === "user" || role === "system") return state
 
+    // toolResult event: merge result into the last assistant message's contentBlocks
+    if (role === "toolResult") {
+      const msg = payload.message as Record<string, unknown>
+      const toolCallId = typeof msg.toolCallId === "string" ? msg.toolCallId : ""
+      const toolName = typeof msg.toolName === "string" ? msg.toolName : ""
+      const isError = msg.isError === true
+      if (!toolCallId) return state
+
+      const existing = state.messages[conversationId] ?? []
+      // Find the last assistant message with contentBlocks
+      for (let i = existing.length - 1; i >= 0; i--) {
+        const m = existing[i]
+        if (m.senderId === "user") break // don't look past the last user message
+        if (!m.contentBlocks || m.contentBlocks.length === 0) continue
+        const hasMatchingToolCall = m.contentBlocks.some(
+          (b) => b.type === "toolCall" && b.id === toolCallId
+        )
+        if (!hasMatchingToolCall) continue
+
+        const updatedBlocks = m.contentBlocks.map((b) =>
+          b.type === "toolCall" && b.id === toolCallId
+            ? { ...b, result: { toolCallId, toolName, content: msg.content, isError } }
+            : b
+        )
+        const updatedMsg = { ...m, contentBlocks: updatedBlocks }
+        const updatedMsgs = [...existing]
+        updatedMsgs[i] = updatedMsg
+        return {
+          ...state,
+          messages: { ...state.messages, [conversationId]: updatedMsgs },
+        }
+      }
+      return state
+    }
+
     if (chatState === "delta") {
       const content = extractTextContent(
         isRecord(payload.message)
@@ -126,17 +161,22 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
     }
 
     if (chatState === "final") {
-      const content = extractTextContent(
-        isRecord(payload.message)
-          ? (payload.message as Record<string, unknown>).content ?? (payload.message as Record<string, unknown>).text
-          : ""
-      )
-      console.warn(`[Reducer:chat:final] conversationId=${conversationId} content=${content ? content.slice(0, 40) : "(empty)"} existingMsgs=${(state.messages[conversationId] ?? []).length} lastMsgId=${state.messages[conversationId]?.at(-1)?.id ?? "none"}`)
-      if (content) {
+      const rawContent = isRecord(payload.message)
+        ? (payload.message as Record<string, unknown>).content ?? (payload.message as Record<string, unknown>).text
+        : ""
+      const content = extractTextContent(rawContent)
+      const contentBlocks = extractAssistantContentBlocks(rawContent)
+      console.warn(`[Reducer:chat:final] conversationId=${conversationId} content=${content ? content.slice(0, 40) : "(empty)"} blocks=${contentBlocks.length} existingMsgs=${(state.messages[conversationId] ?? []).length} lastMsgId=${state.messages[conversationId]?.at(-1)?.id ?? "none"}`)
+      if (content || contentBlocks.length > 0) {
         const existing = state.messages[conversationId] ?? []
         const lastMsg = existing[existing.length - 1]
         if (lastMsg && lastMsg.id.startsWith("streaming-")) {
-          const updated = { ...lastMsg, content, id: uniqueId("msg") }
+          const updated: Message = {
+            ...lastMsg,
+            content,
+            id: uniqueId("msg"),
+            ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+          }
           const next = new Set(state.thinkingAgents)
           next.delete(agentId)
           const updatedAgents = state.agents.map((a) =>

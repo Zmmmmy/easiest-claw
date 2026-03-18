@@ -148,6 +148,14 @@ export function useChatHistory() {
   const loadHistory = useCallback(async (agentId: string): Promise<HistoryMessage[]> => {
     setLoading(true)
     try {
+      // Try full JSONL history first (includes pre-compaction messages)
+      const sessionKey = `agent:${agentId}:main`
+      const fullRes = await window.ipc.chatHistoryFull({ agentId, sessionKey })
+      if (fullRes?.ok) {
+        const data = fullRes.result as { messages?: HistoryMessage[] }
+        if (data.messages && data.messages.length > 0) return data.messages
+      }
+      // Fall back to gateway API
       const res = await window.ipc.chatHistory({ agentId })
       if (!res || !res.ok) return []
       const data = res.result as { messages?: HistoryMessage[] }

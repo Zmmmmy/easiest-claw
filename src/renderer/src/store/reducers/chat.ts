@@ -1,6 +1,6 @@
-import type { Message } from "@/types"
+import type { Message, ContentBlock, ToolResultBlock } from "@/types"
 import type { AppState, AppAction } from "../app-types"
-import { extractTextContent, extractImageAttachments, uniqueId } from "../app-utils"
+import { extractTextContent, extractImageAttachments, extractFileAttachments, stripFileAttachmentBlock, extractAssistantContentBlocks, extractToolResult, mergeToolResults, uniqueId } from "../app-utils"
 import { handleGatewayEvent } from "./gateway-event"
 
 export function handleChatAction(state: AppState, action: AppAction): AppState | null {
@@ -84,34 +84,72 @@ export function handleChatAction(state: AppState, action: AppAction): AppState |
         content.startsWith("Execute your Session Startup") ||
         content.startsWith("I'll read the required session startup")
 
-      const converted: Message[] = historyMessages
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m, idx) => {
-          const isUser = m.role === "user"
-          const content = extractTextContent(m.content)
-          // OpenClaw 小图可能原样返回；否则用 context 层预取的 IndexedDB 缓存
-          const extractedAtts = isUser ? extractImageAttachments(m.content) : []
-          const attachments = extractedAtts.length > 0
-            ? extractedAtts
-            : (attachmentOverrides?.[idx] ?? [])
-          const ts = m.timestamp
-            ? new Date(m.timestamp).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
-            : ""
-          return {
-            id: uniqueId("hist"),
-            conversationId,
-            senderId: isUser ? "user" : agentId,
-            senderName: isUser ? "\u6211" : (agent?.name ?? agentId),
-            senderAvatar: isUser ? "ZK" : (agent?.avatar ?? agentId.slice(0, 2).toUpperCase()),
-            senderRole: isUser ? undefined : agent?.role,
-            content,
-            timestamp: ts,
-            read: true,
-            type: "text" as const,
-            ...(attachments.length > 0 ? { attachments } : {}),
+      // First pass: build messages and collect toolResults keyed by preceding assistant index
+      const converted: Message[] = []
+      // Map from converted array index → pending toolResult blocks to merge
+      const pendingToolResults = new Map<number, ToolResultBlock[]>()
+      // Track which original index maps to which attachmentOverrides index
+      let userAssistantIdx = 0
+
+      for (const m of historyMessages) {
+        if (m.role === "toolResult") {
+          // Attach to the last assistant message
+          const lastIdx = converted.length - 1
+          if (lastIdx >= 0 && converted[lastIdx].senderId !== "user") {
+            const existing = pendingToolResults.get(lastIdx) ?? []
+            const tr = extractToolResult(m)
+            if (tr) existing.push(tr)
+            pendingToolResults.set(lastIdx, existing)
           }
-        })
-        .filter((m) => (m.content.trim() || (m.attachments && m.attachments.length > 0)) && !isInternalMessage(m.content.trim()))
+          continue
+        }
+
+        if (m.role === "system") continue
+        if (m.role !== "user" && m.role !== "assistant") continue
+
+        const isUser = m.role === "user"
+        const currentFilteredIdx = userAssistantIdx++
+        const rawText = extractTextContent(m.content)
+        const content = isUser ? stripFileAttachmentBlock(rawText) : rawText
+        const fileAtts = isUser ? extractFileAttachments(rawText) : []
+        const extractedAtts = isUser ? extractImageAttachments(m.content) : []
+        const imageAtts = extractedAtts.length > 0
+          ? extractedAtts
+          : (attachmentOverrides?.[currentFilteredIdx] ?? [])
+        const attachments = [...imageAtts, ...fileAtts]
+        const contentBlocks = !isUser ? extractAssistantContentBlocks(m.content) : []
+        const ts = m.timestamp
+          ? new Date(m.timestamp).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+          : ""
+
+        const msg: Message = {
+          id: uniqueId("hist"),
+          conversationId,
+          senderId: isUser ? "user" : agentId,
+          senderName: isUser ? "\u6211" : (agent?.name ?? agentId),
+          senderAvatar: isUser ? "ZK" : (agent?.avatar ?? agentId.slice(0, 2).toUpperCase()),
+          senderRole: isUser ? undefined : agent?.role,
+          content,
+          timestamp: ts,
+          read: true,
+          type: "text" as const,
+          ...(attachments.length > 0 ? { attachments } : {}),
+          ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+        }
+
+        if (msg.content.trim() || (msg.attachments && msg.attachments.length > 0) || (msg.contentBlocks && msg.contentBlocks.length > 0)) {
+          if (!isInternalMessage(msg.content.trim())) {
+            converted.push(msg)
+          }
+        }
+      }
+
+      // Second pass: merge toolResults into their assistant message's contentBlocks
+      for (const [idx, toolResults] of pendingToolResults) {
+        const msg = converted[idx]
+        if (!msg || !msg.contentBlocks || msg.contentBlocks.length === 0) continue
+        converted[idx] = { ...msg, contentBlocks: mergeToolResults(msg.contentBlocks, toolResults) }
+      }
 
       if (converted.length === 0) return state
 

@@ -151,6 +151,23 @@
   "typingIndicator": {
     "thinking": "{{name}} 正在思考..."
   },
+  "contentBlocks": {
+    "thinking": "思考过程",
+    "thinkingRedacted": "内容已省略",
+    "toolCall": "工具调用",
+    "toolResult": "执行结果",
+    "toolError": "执行失败",
+    "arguments": "参数"
+  },
+  "sessionHistory": {
+    "title": "历史会话",
+    "historyMessages": "会话记录",
+    "current": "当前",
+    "noSessions": "暂无历史会话",
+    "loadingHistory": "加载中...",
+    "empty": "该会话暂无消息",
+    "archived": "已归档"
+  },
   "messageBubble": {
     "taskStatus": {
       "completed": "已完成",
@@ -196,7 +213,8 @@
       "videoCall": "视频通话",
       "searchMessages": "搜索聊天记录",
       "membersList": "成员列表",
-      "workspace": "工作空间"
+      "workspace": "工作空间",
+      "sessionHistory": "历史会话"
     },
     "menu": {
       "viewProfile": "查看资料",
@@ -469,12 +487,16 @@
     "by": "by",
     "downloads": "下载",
     "explore": "热门推荐",
-    "exploreHint": "输入关键词搜索 ClawHub 技能市场",
+    "exploreHint": "输入关键词搜索 Skills.sh 技能市场",
     "marketplaceError": "获取市场数据失败",
-    "openClawHub": "浏览 ClawHub",
+    "openClawHub": "浏览 Skills.sh",
     "changelog": "更新日志",
-    "viewOnClawHub": "在 ClawHub 查看",
+    "viewOnClawHub": "在 Skills.sh 查看",
     "malwareBlocked": "此技能因恶意软件被封禁",
-    "suspicious": "此技能已被标记为可疑"
+    "suspicious": "此技能已被标记为可疑",
+    "searchInstalled": "搜索已安装技能...",
+    "detailTitle": "技能详情",
+    "files": "文件列表",
+    "noFiles": "未找到文件"
   }
 }

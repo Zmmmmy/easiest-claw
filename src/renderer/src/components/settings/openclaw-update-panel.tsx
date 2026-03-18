@@ -18,28 +18,28 @@ interface UpdateInfo {
     hasUpdate: boolean
 }
 
-type UpgradeStep = 'download' | 'install' | 'stop' | 'migrate' | 'start'
+type UpgradeStep = 'download' | 'stop' | 'migrate' | 'install' | 'start'
 
 interface UpgradeState {
     running: boolean
     steps: Record<UpgradeStep, { status: 'pending' | 'running' | 'done' | 'error'; logs: string[] }>
 }
 
-const UPGRADE_STEP_KEYS: UpgradeStep[] = ['download', 'install', 'stop', 'migrate', 'start']
+const UPGRADE_STEP_KEYS: UpgradeStep[] = ['download', 'stop', 'migrate', 'install', 'start']
 
 const EMPTY_UPGRADE_STEPS = (): UpgradeState['steps'] => ({
     download: { status: 'pending', logs: [] },
-    install: { status: 'pending', logs: [] },
     stop: { status: 'pending', logs: [] },
     migrate: { status: 'pending', logs: [] },
+    install: { status: 'pending', logs: [] },
     start: { status: 'pending', logs: [] },
 })
 
 const upgradeStepLabels: Record<UpgradeStep, string> = {
-    download: '下载',
-    install: '安装',
+    download: '下载升级包',
     stop: '停止 Gateway',
-    migrate: '迁移文件',
+    migrate: '备份旧版本',
+    install: '解压新版本',
     start: '启动 Gateway',
 }
 
@@ -94,9 +94,9 @@ export function OpenclawUpdatePanel() {
                     running: state.running,
                     steps: {
                         download: pick('download'),
-                        install: pick('install'),
                         stop: pick('stop'),
                         migrate: pick('migrate'),
+                        install: pick('install'),
                         start: pick('start'),
                     }
                 })
@@ -244,11 +244,6 @@ export function OpenclawUpdatePanel() {
                 </>
             )}
 
-            {activeSource === 'system' && (
-                <p className="text-[10px] text-muted-foreground/70">
-                    系统模式下升级将执行 npm install -g
-                </p>
-            )}
         </div>
     )
 }

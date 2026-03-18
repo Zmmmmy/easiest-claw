@@ -10,12 +10,15 @@ import path from 'node:path'
 export const isRecord = (v: unknown): v is Record<string, unknown> =>
   Boolean(v && typeof v === 'object' && !Array.isArray(v))
 
-export function getOpenclawConfigPath(): string {
+export function getOpenclawStateDir(): string {
   const override = process.env.OPENCLAW_STATE_DIR?.trim()
-  const stateDir = override
+  return override
     ? path.resolve(override.replace(/^~(?=$|[\\/])/, os.homedir()))
     : path.join(os.homedir(), '.openclaw')
-  return path.join(stateDir, 'openclaw.json')
+}
+
+export function getOpenclawConfigPath(): string {
+  return path.join(getOpenclawStateDir(), 'openclaw.json')
 }
 
 export function readOpenclawConfig(): Record<string, unknown> {

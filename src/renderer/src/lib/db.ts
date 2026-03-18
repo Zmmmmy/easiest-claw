@@ -57,10 +57,11 @@ export async function saveAttachmentCacheDb(
 }
 
 /**
- * 按 convId + text 匹配并弹出（删除）第一条缓存。
+ * 按 convId + text 匹配并返回第一条缓存的附件。
+ * 不删除缓存条目，以便应用重启后仍能恢复图片。
  * 找不到则返回空数组。
  */
-export async function popAttachmentCacheDb(
+export async function getAttachmentCacheDb(
   convId: string,
   text: string
 ): Promise<ChatAttachment[]> {
@@ -70,7 +71,6 @@ export async function popAttachmentCacheDb(
       .equals([convId, text])
       .first()
     if (!entry?.id) return []
-    await db.attachmentCache.delete(entry.id)
     return entry.attachments
   } catch {
     return []

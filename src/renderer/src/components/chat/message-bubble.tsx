@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { ContentBlockRenderer } from "./content-blocks"
 import { useI18n } from "@/i18n"
 import { getAgentAvatarUrl, getUserAvatarUrl, useAvatarVersion } from "@/lib/avatar"
 import { cn } from "@/lib/utils"
@@ -142,6 +143,11 @@ export function MessageBubble({ message, showSenderInfo = false, onAgentAvatarCl
             <TaskCardContent taskCard={message.taskCard} />
           ) : message.type === "file" && message.fileAttachment ? (
             <FileAttachmentContent file={message.fileAttachment} text={message.content} />
+          ) : message.contentBlocks && message.contentBlocks.length > 0 ? (
+            <ContentBlockRenderer
+              blocks={message.contentBlocks}
+              renderMarkdown={(text) => <MarkdownContent content={text} />}
+            />
           ) : (
             <MarkdownContent content={message.content} />
           )}

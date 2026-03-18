@@ -29,6 +29,19 @@ export interface Agent {
   lastActiveAt: string
 }
 
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string; redacted?: boolean }
+  | { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown>; result?: ToolResultBlock }
+  | { type: "toolResult"; toolCallId: string; toolName: string; content: unknown; isError: boolean }
+
+export interface ToolResultBlock {
+  toolCallId: string
+  toolName: string
+  content: unknown
+  isError: boolean
+}
+
 export interface Message {
   id: string
   conversationId: string
@@ -43,6 +56,7 @@ export interface Message {
   taskCard?: TaskCard
   fileAttachment?: FileAttachment
   attachments?: ChatAttachment[]
+  contentBlocks?: ContentBlock[]
   mentions?: string[]
   orchestrationInfo?: OrchestrationInfo
 }

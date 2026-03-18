@@ -1,6 +1,6 @@
 
 
-import { FolderOpen, Loader2, MoreHorizontal, Trash2, Users } from "lucide-react"
+import { FolderOpen, History, Loader2, MoreHorizontal, Trash2, Users } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
 import {
@@ -39,10 +39,11 @@ interface ChatHeaderProps {
   conversation: Conversation
   onToggleMembers?: () => void
   onToggleWorkspace?: () => void
+  onToggleSessionHistory?: () => void
   onAgentAvatarClick?: (agentId: string, agentName: string) => void
 }
 
-export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, onAgentAvatarClick }: ChatHeaderProps) {
+export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, onToggleSessionHistory, onAgentAvatarClick }: ChatHeaderProps) {
   const { state, dispatch, refreshFleet } = useApp()
   const { t } = useI18n()
   const [renameOpen, setRenameOpen] = useState(false)
@@ -163,6 +164,14 @@ export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, o
             icon={<FolderOpen className="h-4 w-4" />}
             tooltip={t("header.tooltips.workspace")}
             onClick={onToggleWorkspace}
+          />
+        )}
+
+        {!isGroup && agent && onToggleSessionHistory && (
+          <HeaderButton
+            icon={<History className="h-4 w-4" />}
+            tooltip={t("header.tooltips.sessionHistory")}
+            onClick={onToggleSessionHistory}
           />
         )}
 

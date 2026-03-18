@@ -248,6 +248,13 @@ export function getGatewayLogBuffer(): Array<{ line: string; isError: boolean }>
   return _gatewayLogBuffer.slice()
 }
 
+/** 主动推送一条日志到渲染层（复用 gateway log 通道），用于启动阶段可视化 */
+export function pushGatewayLog(line: string, isError = false): void {
+  _gatewayLogBuffer.push({ line, isError })
+  if (_gatewayLogBuffer.length > GATEWAY_LOG_BUFFER_MAX) _gatewayLogBuffer.shift()
+  gatewayLogListeners.forEach(fn => fn(line, isError))
+}
+
 let gatewayProcess: Electron.UtilityProcess | null = null
 
 // 自动重启状态
@@ -429,11 +436,13 @@ export async function autoSpawnBundledOpenclaw(): Promise<void> {
   if (!bundledOc) {
     logger.warn('[AutoSpawn] bundled openclaw not found, skipping')
     console.log('[AutoSpawn] bundled openclaw not found, skipping')
+    pushGatewayLog('[启动] 未找到内置 OpenClaw，跳过')
     return
   }
 
   const { openclawDir, entryScript } = bundledOc
   logger.info(`[AutoSpawn] bundled openclaw dir: ${openclawDir}`)
+  pushGatewayLog('[启动] 正在读取 Gateway 配置...')
 
   let token = readGatewayToken()
   if (!token) {
@@ -443,6 +452,7 @@ export async function autoSpawnBundledOpenclaw(): Promise<void> {
     writeGatewayConfig(token)
     logger.info('[AutoSpawn] config written')
     console.log('[AutoSpawn] config written')
+    pushGatewayLog('[启动] 首次运行，已生成 Gateway Token')
   } else {
     writeGatewayConfig(token)
   }
@@ -450,38 +460,46 @@ export async function autoSpawnBundledOpenclaw(): Promise<void> {
   sanitizeOpenClawConfig()
   patchSettings({ gateway: { url: `ws://localhost:${GATEWAY_PORT}`, token } })
 
+  pushGatewayLog('[启动] 正在检测端口 18789...')
   logger.info('[AutoSpawn] probing port 18789...')
   const alreadyUp = await checkPortOnce(GATEWAY_PORT, 300)
   if (alreadyUp) {
     if (gatewayProcess !== null) {
       logger.info('[AutoSpawn] bundled gateway already running, skip fork')
       console.log('[AutoSpawn] bundled gateway already running, skip fork')
+      pushGatewayLog('[启动] Gateway 已在运行中')
       gatewaySource = 'bundled'
     } else {
       logger.warn('[AutoSpawn] port 18789 occupied by external process, awaiting user decision...')
       console.log('[AutoSpawn] port 18789 occupied by external process, awaiting user decision...')
+      pushGatewayLog('[启动] 端口 18789 被外部进程占用，等待用户决定...')
       portConflictPending = true
     }
     return
   }
 
+  pushGatewayLog('[启动] 正在启动 OpenClaw Gateway 进程...')
   logger.info('[AutoSpawn] forking bundled OpenClaw Gateway...')
   console.log('[AutoSpawn] forking bundled OpenClaw Gateway...')
 
   // fork 前先确保依赖完整（修复程序内升级后 node_modules 未补全的问题）
+  pushGatewayLog('[启动] 检查 OpenClaw 依赖...')
   await ensureOpenclawDependencies(openclawDir)
 
   forkOpenclawGateway(entryScript, openclawDir, token)
 
+  pushGatewayLog('[启动] Gateway 进程已启动，等待就绪（最多 90 秒）...')
   logger.info('[AutoSpawn] waiting for gateway ready (max 90s)...')
   const ready = await waitForGatewayReady(90_000)
   if (ready) {
     gatewaySource = 'bundled'
     logger.info('[AutoSpawn] bundled gateway ready')
     console.log('[AutoSpawn] bundled gateway ready')
+    pushGatewayLog('[启动] Gateway 已就绪 ✓')
   } else {
     logger.warn('[AutoSpawn] bundled gateway not ready within 90s, continuing (adapter will retry)')
     console.warn('[AutoSpawn] bundled gateway not ready within 90s, continuing')
+    pushGatewayLog('[启动] Gateway 90 秒内未就绪，将在后台继续重试...')
   }
 }
 

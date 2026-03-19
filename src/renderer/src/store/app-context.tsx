@@ -77,7 +77,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const preloadedGroupMsgIds = useRef(new Set<string>())
 
   const compactionToastRef = useRef<string | number | null>(null)
-  const compactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const compactionCountRef = useRef(0)
 
   const handleEvent = useCallback((event: GatewayEvent) => {
     // Detect compaction events and show toast notifications
@@ -86,38 +86,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (payload && payload.stream === "compaction") {
         const data = payload.data as Record<string, unknown> | undefined
         if (data?.phase === "start") {
-          // Clear any previous compaction toast/timer
-          if (compactionToastRef.current != null) {
-            toast.dismiss(compactionToastRef.current)
+          compactionCountRef.current += 1
+          // Show a single toast for all concurrent compactions
+          if (compactionToastRef.current == null) {
+            compactionToastRef.current = toast("正在压缩上下文...", {
+              duration: 30_000,
+              description: "历史消息将被摘要化以节省 token",
+              icon: "⏳",
+            })
           }
-          if (compactionTimerRef.current) {
-            clearTimeout(compactionTimerRef.current)
-          }
-          compactionToastRef.current = toast.loading("正在压缩上下文...", {
-            duration: 10_000,
-            description: "历史消息将被摘要化以节省 token",
-          })
-          // Auto-dismiss after 10s in case "end" event is missed
-          compactionTimerRef.current = setTimeout(() => {
+        } else if (data?.phase === "end" || data?.phase === "error") {
+          compactionCountRef.current = Math.max(0, compactionCountRef.current - 1)
+          if (compactionCountRef.current === 0) {
             if (compactionToastRef.current != null) {
               toast.dismiss(compactionToastRef.current)
               compactionToastRef.current = null
             }
-            compactionTimerRef.current = null
-          }, 10_000)
-        } else if (data?.phase === "end" || data?.phase === "error") {
-          if (compactionTimerRef.current) {
-            clearTimeout(compactionTimerRef.current)
-            compactionTimerRef.current = null
+            toast.info("上下文已压缩", {
+              description: "早期消息已被摘要替代，可在「历史会话」中查看完整记录",
+              duration: 5000,
+            })
           }
-          if (compactionToastRef.current != null) {
-            toast.dismiss(compactionToastRef.current)
-            compactionToastRef.current = null
-          }
-          toast.info("上下文已压缩", {
-            description: "早期消息已被摘要替代，可在「历史会话」中查看完整记录",
-            duration: 5000,
-          })
         }
       }
     }

@@ -488,18 +488,20 @@ export async function autoSpawnBundledOpenclaw(): Promise<void> {
 
   forkOpenclawGateway(entryScript, openclawDir, token)
 
-  pushGatewayLog('[启动] Gateway 进程已启动，等待就绪（最多 90 秒）...')
-  logger.info('[AutoSpawn] waiting for gateway ready (max 90s)...')
-  const ready = await waitForGatewayReady(90_000)
+  pushGatewayLog('[启动] Gateway 进程已启动，等待就绪（最多 15 秒）...')
+  logger.info('[AutoSpawn] waiting for gateway ready (max 15s)...')
+  const ready = await waitForGatewayReady(15_000)
   if (ready) {
     gatewaySource = 'bundled'
     logger.info('[AutoSpawn] bundled gateway ready')
     console.log('[AutoSpawn] bundled gateway ready')
     pushGatewayLog('[启动] Gateway 已就绪 ✓')
   } else {
-    logger.warn('[AutoSpawn] bundled gateway not ready within 90s, continuing (adapter will retry)')
-    console.warn('[AutoSpawn] bundled gateway not ready within 90s, continuing')
-    pushGatewayLog('[启动] Gateway 90 秒内未就绪，将在后台继续重试...')
+    // Don't block startup — adapter will auto-reconnect in the background
+    gatewaySource = 'bundled'
+    logger.warn('[AutoSpawn] bundled gateway not ready within 15s, adapter will retry in background')
+    console.warn('[AutoSpawn] bundled gateway not ready within 15s, continuing')
+    pushGatewayLog('[启动] Gateway 仍在初始化，已在后台继续连接...')
   }
 }
 

@@ -550,3 +550,25 @@ export const isHeartbeatPrompt = (text: string) => {
 };
 
 export const isUiMetadataPrefix = (text: string) => UI_METADATA_PREFIX_RE.test(text);
+
+/**
+ * Strip "Sender (untrusted metadata):" envelope that OpenClaw channels prepend to user messages.
+ * Format:
+ *   Sender (untrusted metadata):
+ *   ```json
+ *   { ... }
+ *   ```
+ *
+ *   [timestamp] actual message
+ *
+ * Also handles the variant without the timestamp line.
+ */
+const SENDER_METADATA_RE = /^Sender\s*\(untrusted metadata\)\s*:\s*```[\s\S]*?```\s*/i;
+const CHANNEL_TIMESTAMP_RE = /^\[[\w\s:+\-,.]+\]\s*/;
+
+export const stripSenderMetadata = (text: string): string => {
+  if (!text) return text;
+  let cleaned = text.replace(SENDER_METADATA_RE, "");
+  cleaned = cleaned.replace(CHANNEL_TIMESTAMP_RE, "");
+  return cleaned.trim();
+};

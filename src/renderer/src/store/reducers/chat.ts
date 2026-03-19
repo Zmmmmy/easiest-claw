@@ -1,6 +1,7 @@
 import type { Message, ContentBlock, ToolResultBlock } from "@/types"
 import type { AppState, AppAction } from "../app-types"
 import { extractTextContent, extractImageAttachments, extractFileAttachments, stripFileAttachmentBlock, extractAssistantContentBlocks, extractToolResult, mergeToolResults, uniqueId } from "../app-utils"
+import { stripSenderMetadata, stripUiMetadata } from "@/lib/text/message-extract"
 import { handleGatewayEvent } from "./gateway-event"
 
 export function handleChatAction(state: AppState, action: AppAction): AppState | null {
@@ -110,7 +111,8 @@ export function handleChatAction(state: AppState, action: AppAction): AppState |
         const isUser = m.role === "user"
         const currentFilteredIdx = userAssistantIdx++
         const rawText = extractTextContent(m.content)
-        const content = isUser ? stripFileAttachmentBlock(rawText) : rawText
+        const stripped = isUser ? stripSenderMetadata(stripUiMetadata(rawText)) : rawText
+        const content = isUser ? stripFileAttachmentBlock(stripped) : stripped
         const fileAtts = isUser ? extractFileAttachments(rawText) : []
         const extractedAtts = isUser ? extractImageAttachments(m.content) : []
         const imageAtts = extractedAtts.length > 0

@@ -6,7 +6,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAllIpcHandlers } from './ipc'
 import { syncDataDirToRegistry } from './ipc/settings'
 import { startRuntime, stopRuntime } from './gateway/runtime'
-import { autoSpawnBundledOpenclaw, addGatewayLogListener, getGatewayLogBuffer } from './gateway/bundled-process'
+import { autoSpawnBundledOpenclaw, addGatewayLogListener, getGatewayLogBuffer, pushGatewayLog } from './gateway/bundled-process'
 import { extractOpenClawIfNeeded, getExtractState, confirmUpgrade, skipUpgrade } from './openclaw-init'
 import { migrateDataDirIfNeeded } from './lib/data-dir'
 import { logger } from './lib/logger'
@@ -203,17 +203,31 @@ app.whenReady().then(async () => {
 })
 
 // ── 初始化流水线：迁移 → 防火墙 + 解压 → gateway → runtime ──────────────────
+
+/** 向渲染进程推送一条启动阶段日志（复用 gateway:log 通道 + 日志缓冲区） */
+function pushStartupLog(text: string): void {
+  logger.info(`[Startup] ${text}`)
+  const line = `[启动] ${text}`
+  // 写入缓冲区（补偿查询可用）+ 通知已注册的 listener
+  pushGatewayLog(line, false)
+  // listener 可能还没注册（解压阶段在 addGatewayLogListener 之前），直接 send 兜底
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('gateway:log', { line, isError: false })
+  }
+}
+
 async function startInitPipeline(): Promise<void> {
   // 数据目录迁移（在解压前执行，避免解压到旧位置）
+  pushStartupLog('检查数据目录...')
   await migrateDataDirIfNeeded()
 
   // 防火墙规则 + 解压并行执行
-  logger.info('[Startup] ensureFirewallRule + extractOpenClawIfNeeded — start (parallel)')
+  pushStartupLog('初始化环境（防火墙规则 + 解压 OpenClaw）...')
   await Promise.all([
     ensureFirewallRule(),
     extractOpenClawIfNeeded(mainWindow, process.resourcesPath),
   ])
-  logger.info('[Startup] ensureFirewallRule + extractOpenClawIfNeeded — done')
+  pushStartupLog('环境初始化完成')
 
   // Gateway 进程日志 → 渲染进程
   addGatewayLogListener((line, isError) => {
@@ -223,14 +237,15 @@ async function startInitPipeline(): Promise<void> {
   })
 
   // Spawn bundled openclaw
-  logger.info('[Startup] autoSpawnBundledOpenclaw — start')
+  pushStartupLog('正在启动 OpenClaw Gateway...')
   await autoSpawnBundledOpenclaw().catch((e) => {
     logger.error(`[AutoSpawn] fatal error: ${e}`)
     console.error('[AutoSpawn] error:', e)
+    pushStartupLog(`Gateway 启动出错: ${e}`)
   })
 
   // Start runtime AFTER gateway is ready
-  logger.info('[Startup] startRuntime — start')
+  pushStartupLog('正在连接 Gateway...')
   startRuntime((event) => {
     if (is.dev) {
       const evt = event as { type: string; event?: string; payload?: unknown }

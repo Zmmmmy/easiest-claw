@@ -29,10 +29,10 @@ const root = join(__dir, '..')
 // ── 优先使用本地 openclaw 源（../openclaw），不存在时回退到 npm 注册表 ──────────
 const LOCAL_SRC = join(root, '..', 'openclaw')
 const localSrcExists = existsSync(join(LOCAL_SRC, 'package.json'))
-const sourceModeRaw = String(process.env.OPENCLAW_SOURCE ?? 'auto').trim().toLowerCase()
+const sourceModeRaw = String(process.env.OPENCLAW_SOURCE ?? 'npm').trim().toLowerCase()
 const sourceMode = sourceModeRaw === 'local' || sourceModeRaw === 'npm' || sourceModeRaw === 'auto'
   ? sourceModeRaw
-  : 'auto'
+  : 'npm'
 
 if (sourceMode === 'local' && !localSrcExists) {
   throw new Error(`[bundle-openclaw] OPENCLAW_SOURCE=local, but local source not found: ${LOCAL_SRC}`)

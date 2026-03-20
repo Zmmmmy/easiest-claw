@@ -23,6 +23,8 @@ interface MessageBubbleProps {
 export function MessageBubble({ message, showSenderInfo = false, onAgentAvatarClick }: MessageBubbleProps) {
   const { t } = useI18n()
   useAvatarVersion()
+  const showTrailingStreamingText =
+    message.id.startsWith("streaming-") && Boolean(message.content?.trim())
 
   if (message.type === "system") {
     return (
@@ -144,10 +146,14 @@ export function MessageBubble({ message, showSenderInfo = false, onAgentAvatarCl
           ) : message.type === "file" && message.fileAttachment ? (
             <FileAttachmentContent file={message.fileAttachment} text={message.content} />
           ) : message.contentBlocks && message.contentBlocks.length > 0 ? (
-            <ContentBlockRenderer
-              blocks={message.contentBlocks}
-              renderMarkdown={(text) => <MarkdownContent content={text} />}
-            />
+            <>
+              <ContentBlockRenderer
+                blocks={message.contentBlocks}
+                renderMarkdown={(text) => <MarkdownContent content={text} />}
+              />
+              {/* Trailing streaming text not yet frozen into a contentBlock */}
+              {showTrailingStreamingText && <MarkdownContent content={message.content} />}
+            </>
           ) : (
             <MarkdownContent content={message.content} />
           )}

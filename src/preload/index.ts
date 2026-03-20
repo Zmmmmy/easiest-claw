@@ -286,6 +286,30 @@ const ipcApi = {
   channelsGet: () => ipcRenderer.invoke('openclaw:channels:get'),
   channelsSet: (params: { channelId: string; config: Record<string, unknown> }) =>
     ipcRenderer.invoke('openclaw:channels:set', params),
+  bindingsGet: () => ipcRenderer.invoke('openclaw:bindings:get'),
+  bindingsSet: (params: { bindings: unknown[] }) =>
+    ipcRenderer.invoke('openclaw:bindings:set', params),
+  channelsStatus: (params?: { probe?: boolean; timeoutMs?: number }) =>
+    ipcRenderer.invoke('openclaw:channels:status', params),
+
+  // ── Plugins ────────────────────────────────────────────────────────────────
+  pluginsList: () => ipcRenderer.invoke('openclaw:plugins:list'),
+  pluginsMarketplaces: () => ipcRenderer.invoke('openclaw:plugins:marketplaces'),
+  pluginsMarketplaceList: (params: { marketplace: string }) =>
+    ipcRenderer.invoke('openclaw:plugins:marketplace:list', params),
+  pluginsInstall: (params: { spec: string; link?: boolean; pin?: boolean }) =>
+    ipcRenderer.invoke('openclaw:plugins:install', params),
+  pluginsEnable: (params: { pluginId: string }) =>
+    ipcRenderer.invoke('openclaw:plugins:enable', params),
+  pluginsDisable: (params: { pluginId: string }) =>
+    ipcRenderer.invoke('openclaw:plugins:disable', params),
+  pluginsUpdate: (params: { pluginId?: string; all?: boolean; dryRun?: boolean }) =>
+    ipcRenderer.invoke('openclaw:plugins:update', params),
+  pluginsInspect: (params: { pluginId: string }) =>
+    ipcRenderer.invoke('openclaw:plugins:inspect', params),
+  pluginsDoctor: () => ipcRenderer.invoke('openclaw:plugins:doctor'),
+  pluginsUninstall: (params: { pluginId: string; dryRun?: boolean; keepFiles?: boolean }) =>
+    ipcRenderer.invoke('openclaw:plugins:uninstall', params),
 
   // ── Data location (onboarding) ──────────────────────────────────────────────
   dataLocationNeedSelect: (): Promise<boolean> =>

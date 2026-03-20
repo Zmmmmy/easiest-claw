@@ -97,12 +97,17 @@ npm run dev
 |------|------|
 | `npm run dev` | 启动 Electron 开发服务器（热重载） |
 | `npm run build` | 编译主进程 / 预加载 / 渲染进程 |
+| `npm run check:encoding` | 检查文本文件是否为 UTF-8 且无 BOM |
+| `npm run fix:encoding` | 自动移除文本文件 UTF-8 BOM |
+| `npm run setup:githooks` | 安装本地 Git 钩子（提交前自动检查编码） |
 | `npm run lint` | 对 `.ts` / `.tsx` 文件执行 ESLint |
 | `npm run build:win` | 打包 Windows 安装包（NSIS） |
 | `npm run build:mac` | 打包 macOS 安装包（DMG） |
 | `npm run build:linux` | 打包 Linux 安装包（AppImage） |
 
 编译产物输出至 `out/`，安装包输出至 `dist/`。
+
+编码与行尾规范详见：[docs/文本编码治理.md](docs/文本编码治理.md)。
 
 ## 项目结构
 

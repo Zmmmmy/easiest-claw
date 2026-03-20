@@ -9,6 +9,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useState,
   type ReactNode,
 } from "react"
 import type { ChatAttachment } from "@/types"
@@ -29,23 +30,23 @@ import {
   loadGroupsFromStorage,
   loadGroupMessagesFromStorage,
 } from "./app-storage"
-import { uniqueId, parseViewFromHash, extractTextContent, extractImageAttachments } from "./app-utils"
+import { uniqueId, parseViewFromHash, extractTextContent, extractImageAttachments, resolveAgentIdFromPayload } from "./app-utils"
 import { saveAttachmentCacheDb, getAttachmentCacheDb } from "@/lib/db"
-import { toast } from "sonner"
 
-function buildWorkspacePrompt(workspacePath: string, content: string): string {  return [
-    `【共享工作区 - 重要】`,
-    `本次任务在多智能体协作项目中进行，请严格遵守以下规则：`,
+function buildWorkspacePrompt(workspacePath: string, content: string): string {
+  return [
+    "【共享工作区 - 重要】",
+    "本次任务在多智能体协作项目中进行，请严格遵守以下规则：",
     `1. 你的工作目录是：${workspacePath}`,
-    `2. 所有文件读写操作必须在此目录下进行，禁止使用你的默认工作区`,
-    `3. 这是一个共享工作区，其他团队成员也在此目录下协作`,
-    `4. 请保持文件组织清晰，避免覆盖他人的工作成果`,
-    `---`,
+    "2. 所有文件读写操作必须在此目录下进行，禁止使用你的默认工作区",
+    "3. 这是一个共享工作区，其他团队成员也在此目录下协作",
+    "4. 请保持文件组织清晰，避免覆盖他人的工作成果",
+    "---",
     content,
-  ].join('\n')
+  ].join("\n")
 }
 
-/** 在 dispatch LOAD_HISTORY 前，异步预取 IndexedDB 附件缓存（OpenClaw 会剥离超限图片）*/
+/** 在 dispatch LOAD_HISTORY 前预取 IndexedDB 附件缓存。 */
 async function prefetchAttachmentOverrides(
   convId: string,
   messages: import("@/hooks/use-openclaw").HistoryMessage[]
@@ -76,44 +77,166 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Tracks message IDs loaded from storage at startup (must never be re-dispatched)
   const preloadedGroupMsgIds = useRef(new Set<string>())
 
-  const compactionToastRef = useRef<string | number | null>(null)
-  const compactionCountRef = useRef(0)
+  const compactionRunsByConversationRef = useRef(new Map<string, Set<string>>())
+  const compactionDoneTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const [compactingConversationIds, setCompactingConversationIds] = useState<Set<string>>(new Set())
+  const [compactedConversationIds, setCompactedConversationIds] = useState<Set<string>>(new Set())
+  // 网关事件去重：
+  // 1) 基于 connectionEpoch + seq 的帧级去重（避免重复消费同一帧）
+  // 2) 基于 payload 语义的终态事件去重（避免 final/end/error 被重放）
+  const eventDedupeRef = useRef(new Map<string, number>())
+  const DEDUP_TTL_MS = 30_000
+  const MAX_DEDUP_KEYS = 4000
 
   const handleEvent = useCallback((event: GatewayEvent) => {
-    // Detect compaction events and show toast notifications
+    if (event.type === "gateway.event") {
+      const now = Date.now()
+      const map = eventDedupeRef.current
+
+      if (map.size > MAX_DEDUP_KEYS) {
+        for (const [k, ts] of map) {
+          if (now - ts > DEDUP_TTL_MS) map.delete(k)
+        }
+        if (map.size > MAX_DEDUP_KEYS) {
+          let overflow = map.size - MAX_DEDUP_KEYS
+          for (const k of map.keys()) {
+            map.delete(k)
+            overflow -= 1
+            if (overflow <= 0) break
+          }
+        }
+      }
+
+      // 帧级去重：同一网关帧只处理一次。
+      if (typeof event.seq === "number") {
+        const rec = event as unknown as Record<string, unknown>
+        const epoch = typeof rec.connectionEpoch === "string" ? rec.connectionEpoch : "no-epoch"
+        const frameKey = `frame:${epoch}:${event.seq}`
+        const seenAt = map.get(frameKey)
+        if (typeof seenAt === "number" && (now - seenAt) < DEDUP_TTL_MS) return
+        map.set(frameKey, now)
+      }
+
+      // 终态事件语义去重：同一逻辑完成事件可能被重放。
+      const pl = event.payload as Record<string, unknown> | undefined
+      if (pl) {
+        const runId = pl.runId != null ? String(pl.runId) : ""
+        const sessionKey = pl.sessionKey != null ? String(pl.sessionKey) : ""
+        const evtName = event.event ?? ""
+        // chat 事件使用 state（delta/final/error/aborted）
+        const state = pl.state != null ? String(pl.state) : ""
+        // agent 事件使用 stream + phase
+        const data = pl.data as Record<string, unknown> | undefined
+        const stream = pl.stream != null ? String(pl.stream) : ""
+        const phase = data?.phase != null ? String(data.phase) : ""
+        // delta 是增量流，不能去重；只对终态事件去重。
+        const isTerminal = state === "final" || state === "error" || state === "aborted"
+          || phase === "end" || phase === "error" || phase === "completed"
+        if (isTerminal && runId) {
+          const dedupeKey = `terminal:${[runId, sessionKey, evtName, state, stream, phase].join("|")}`
+          if (map.has(dedupeKey)) return
+          map.set(dedupeKey, now)
+        }
+      }
+    }
+
+    // 按会话跟踪压缩生命周期，用于头部内联状态展示
     if (event.type === "gateway.event" && event.event === "agent") {
       const payload = event.payload as Record<string, unknown> | undefined
       if (payload && payload.stream === "compaction") {
         const data = payload.data as Record<string, unknown> | undefined
-        if (data?.phase === "start") {
-          compactionCountRef.current += 1
-          // Show a single toast for all concurrent compactions
-          if (compactionToastRef.current == null) {
-            compactionToastRef.current = toast("正在压缩上下文...", {
-              duration: 30_000,
-              description: "历史消息将被摘要化以节省 token",
-              icon: "⏳",
-            })
-          }
-        } else if (data?.phase === "end" || data?.phase === "error") {
-          compactionCountRef.current = Math.max(0, compactionCountRef.current - 1)
-          if (compactionCountRef.current === 0) {
-            if (compactionToastRef.current != null) {
-              toast.dismiss(compactionToastRef.current)
-              compactionToastRef.current = null
+        const phase = data?.phase != null ? String(data.phase) : ""
+        const runId = payload.runId != null ? String(payload.runId) : ""
+        const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey : ""
+        const groupMatch = sessionKey.match(/^agent:[^:]+:group:(.+)$/)
+        const agentId = resolveAgentIdFromPayload(payload)
+        const conversationId = groupMatch ? groupMatch[1] : (agentId ? `conv-${agentId}` : null)
+
+        if (conversationId && (phase === "start" || phase === "end" || phase === "error" || phase === "completed")) {
+          const runKey = runId || "__no_run__"
+          const runsMap = compactionRunsByConversationRef.current
+          const activeRuns = new Set(runsMap.get(conversationId) ?? [])
+
+          if (phase === "start") {
+            if (activeRuns.has(runKey)) {
+              dispatch({ type: "GATEWAY_EVENT", payload: event })
+              return
             }
-            toast.info("上下文已压缩", {
-              description: "早期消息已被摘要替代，可在「历史会话」中查看完整记录",
-              duration: 5000,
+
+            activeRuns.add(runKey)
+            runsMap.set(conversationId, activeRuns)
+
+            const doneTimer = compactionDoneTimersRef.current.get(conversationId)
+            if (doneTimer) {
+              clearTimeout(doneTimer)
+              compactionDoneTimersRef.current.delete(conversationId)
+            }
+
+            setCompactedConversationIds((prev) => {
+              if (!prev.has(conversationId)) return prev
+              const next = new Set(prev)
+              next.delete(conversationId)
+              return next
             })
+
+            setCompactingConversationIds((prev) => {
+              if (prev.has(conversationId)) return prev
+              const next = new Set(prev)
+              next.add(conversationId)
+              return next
+            })
+          } else {
+            if (activeRuns.has(runKey)) {
+              activeRuns.delete(runKey)
+            } else if (!runId && activeRuns.size > 0) {
+              const firstRun = activeRuns.values().next().value
+              if (firstRun) activeRuns.delete(firstRun)
+            } else {
+              dispatch({ type: "GATEWAY_EVENT", payload: event })
+              return
+            }
+
+            if (activeRuns.size > 0) {
+              runsMap.set(conversationId, activeRuns)
+            } else {
+              runsMap.delete(conversationId)
+
+              setCompactingConversationIds((prev) => {
+                if (!prev.has(conversationId)) return prev
+                const next = new Set(prev)
+                next.delete(conversationId)
+                return next
+              })
+
+              setCompactedConversationIds((prev) => {
+                if (prev.has(conversationId)) return prev
+                const next = new Set(prev)
+                next.add(conversationId)
+                return next
+              })
+
+              const existingTimer = compactionDoneTimersRef.current.get(conversationId)
+              if (existingTimer) clearTimeout(existingTimer)
+              const timer = setTimeout(() => {
+                compactionDoneTimersRef.current.delete(conversationId)
+                setCompactedConversationIds((prev) => {
+                  if (!prev.has(conversationId)) return prev
+                  const next = new Set(prev)
+                  next.delete(conversationId)
+                  return next
+                })
+              }, 5000)
+              compactionDoneTimersRef.current.set(conversationId, timer)
+            }
           }
         }
       }
     }
+
     dispatch({ type: "GATEWAY_EVENT", payload: event })
   }, [])
 
-  // 定义在 useRuntimeEventStream 之前，以便 status useEffect 能引用
+  // 在 useRuntimeEventStream 之前定义 refreshFleet，便于 status effect 引用。
   const refreshFleet = useCallback(async () => {
     const result = await loadFleet()
     if (result?.seeds && result.seeds.length > 0) {
@@ -149,24 +272,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const hasPrimary = !!result.defaults?.primary
       dispatch({ type: "SET_MODELS_CONFIGURED", payload: !!(hasProviders && hasPrimary) })
     } catch {
-      // IPC not ready yet, keep default (true) to avoid flash
+      // IPC 尚未就绪时保持默认值（true），避免界面闪烁
     }
   }, [])
 
   const { status, connect } = useRuntimeEventStream(handleEvent)
 
-  const prevStatusRef = useRef<ConnectionStatus>('disconnected')
+  const prevStatusRef = useRef<ConnectionStatus>("disconnected")
   const fleetRetryRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     dispatch({ type: "SET_CONNECTION_STATUS", payload: status })
 
-    // gateway 每次从非连接状态切换到 connected 时，自动刷新 agent 列表和历史记录
-    if (status === 'connected' && prevStatusRef.current !== 'connected') {
+    // 每次网关重连后刷新 agent 列表与历史记录
+    if (status === "connected" && prevStatusRef.current !== "connected") {
       refreshFleet()
       checkModelsConfigured()
 
-      // Agent 列表可能因 gateway 尚未就绪而为空，每秒重试一次，最多 20 秒
+      // 网关尚未完全就绪时，agent 列表可能为空，最多重试 20 秒
       if (fleetRetryRef.current) clearInterval(fleetRetryRef.current)
       let elapsed = 0
       fleetRetryRef.current = setInterval(() => {
@@ -180,12 +303,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }, 1000)
     }
 
-    // 断开连接时清理重试
-    if (status !== 'connected' && fleetRetryRef.current) {
+    // 断开连接后停止重试循环
+    if (status !== "connected" && fleetRetryRef.current) {
       clearInterval(fleetRetryRef.current)
       fleetRetryRef.current = null
     }
-
     prevStatusRef.current = status
 
     return () => {
@@ -195,6 +317,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [status, refreshFleet, checkModelsConfigured])
+
+  useEffect(() => {
+    return () => {
+      for (const timer of compactionDoneTimersRef.current.values()) {
+        clearTimeout(timer)
+      }
+      compactionDoneTimersRef.current.clear()
+      compactionRunsByConversationRef.current.clear()
+    }
+  }, [])
 
   // Persist group messages to localStorage whenever messages change
   // Skip until initialization is complete to avoid overwriting saved data with empty state
@@ -219,7 +351,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .filter((m) => m.senderId === coordinatorId && !m.id.startsWith("streaming-"))
         .at(-1)
       if (!lastCoordinatorMsg) continue
-      // Skip messages loaded from storage at startup — they were already handled in a previous session
+      // Skip messages loaded from storage at startup - they were already handled in a previous session
       if (preloadedGroupMsgIds.current.has(lastCoordinatorMsg.id)) continue
       if (processedCoordinatorMsgsRef.current.has(lastCoordinatorMsg.id)) continue
 
@@ -245,14 +377,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Show orchestration decision
       const names = mentionedIds
         .map((id) => state.agents.find((a) => a.id === id)?.name ?? id)
-        .join("\u3001")
+        .join("、")
       dispatch({
         type: "ADD_ORCHESTRATION_MESSAGE",
         payload: {
           conversationId: conv.id,
           strategy: "coordinator",
           selectedAgents: mentionedIds,
-          reason: `\u534f\u8c03\u4eba\u5df2\u5206\u6d3e \u2192 ${names}`,
+          reason: `协调人已分派 → ${names}`,
         },
       })
 
@@ -369,9 +501,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
             id: uniqueId("msg-err"),
             conversationId,
             senderId: "system",
-            senderName: "\u7cfb\u7edf",
+            senderName: "系统",
             senderAvatar: "SY",
-            content: `\u53d1\u9001\u5931\u8d25: ${error}`,
+            content: `发送失败: ${error}`,
             timestamp: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
             read: true,
             type: "system",
@@ -384,7 +516,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         send(agentMemberIds[0], content, undefined, attachments).then((result) => {
           if (!result.ok) {
             const agent = stateRef.current.agents.find((a) => a.id === agentMemberIds[0])
-            sendError(`${agent?.name ?? agentMemberIds[0]}: ${(result as { error?: string }).error ?? "\u672a\u77e5\u9519\u8bef"}`)
+            sendError(`${agent?.name ?? agentMemberIds[0]}: ${(result as { error?: string }).error ?? "未知错误"}`)
           }
         })
         return
@@ -428,7 +560,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           send(agentId, messageContent, sessionKey, attachments).then((result) => {
             if (!result.ok) {
               const agent = stateRef.current.agents.find((a) => a.id === agentId)
-              sendError(`${agent?.name ?? agentId}: ${(result as { error?: string }).error ?? "\u672a\u77e5\u9519\u8bef"}`)
+              sendError(`${agent?.name ?? agentId}: ${(result as { error?: string }).error ?? "未知错误"}`)
             }
           })
         }, delay)
@@ -491,8 +623,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ state, dispatch, sendMessage, simulateAgentReply, refreshFleet, resetSession, abortConversation, checkModelsConfigured }),
-    [state, sendMessage, simulateAgentReply, refreshFleet, resetSession, abortConversation, checkModelsConfigured]
+    () => ({
+      state,
+      dispatch,
+      sendMessage,
+      simulateAgentReply,
+      refreshFleet,
+      resetSession,
+      abortConversation,
+      checkModelsConfigured,
+      compactingConversationIds,
+      compactedConversationIds,
+    }),
+    [
+      state,
+      sendMessage,
+      simulateAgentReply,
+      refreshFleet,
+      resetSession,
+      abortConversation,
+      checkModelsConfigured,
+      compactingConversationIds,
+      compactedConversationIds,
+    ]
   )
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>

@@ -27,7 +27,8 @@
     "settings": "设置",
     "changeMyAvatar": "更换个人头像",
     "changeMyAvatarDescription": "确认后将打开文件选择器，选择图片后会立即替换当前头像。",
-    "channels": "渠道"
+    "channels": "渠道",
+    "plugins": "插件"
   },
   "topNav": {
     "connection": {
@@ -250,7 +251,9 @@
     "refreshBatch": "换一批",
     "orUploadCustom": "或上传自定义头像",
     "clickToUpload": "点击上传图片",
-    "uploadSupport": "支持 JPG、PNG、WebP，最大 2MB"
+    "uploadSupport": "支持 JPG、PNG、WebP，最大 2MB",
+    "contextCompacting": "正在压缩上下文",
+    "contextCompacted": "上下文已压缩"
   },
   "groupMembers": {
     "title": "成员 ({{count}})",
@@ -498,5 +501,76 @@
     "detailTitle": "技能详情",
     "files": "文件列表",
     "noFiles": "未找到文件"
+  },
+  "plugins": {
+    "title": "插件管理",
+    "description": "查看和管理已安装的 OpenClaw 插件",
+    "empty": "暂无已安装的插件",
+    "loading": "加载插件列表...",
+    "refresh": "刷新",
+    "search": "搜索插件...",
+    "uninstall": "卸载",
+    "uninstalling": "卸载中...",
+    "uninstallConfirmTitle": "确认卸载插件",
+    "uninstallConfirmDesc": "确定要卸载插件「{{name}}」吗？此操作将删除插件文件和配置，无法撤销。",
+    "uninstallSuccess": "插件「{{name}}」已卸载",
+    "uninstallError": "卸载失败：{{error}}",
+    "cannotUninstallBundled": "内置插件不可卸载",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "origin": {
+      "bundled": "内置",
+      "installed": "已安装",
+      "load-path": "本地加载"
+    },
+    "kind": {
+      "memory": "记忆",
+      "context-engine": "上下文引擎"
+    },
+    "version": "版本",
+    "restartHint": "卸载后需重启 gateway 生效",
+    "loadError": "加载插件失败：{{error}}",
+    "install": "安装",
+    "installing": "安装中...",
+    "installPlaceholder": "输入 npm 包名 / 本地路径 / 压缩包路径",
+    "installSpecRequired": "请先输入安装源",
+    "installSuccess": "已安装：{{spec}}",
+    "installError": "安装失败：{{error}}",
+    "linkInstall": "链接安装 (--link)",
+    "pinInstall": "锁定版本 (--pin)",
+    "enable": "启用",
+    "disable": "禁用",
+    "enableSuccess": "已启用“{{name}}”",
+    "enableError": "启用失败：{{error}}",
+    "disableSuccess": "已禁用“{{name}}”",
+    "disableError": "禁用失败：{{error}}",
+    "update": "更新",
+    "updateAll": "全部更新",
+    "updateSuccess": "已更新“{{name}}”",
+    "updateAllSuccess": "已完成全部插件更新",
+    "updateError": "更新失败：{{error}}",
+    "inspect": "详情",
+    "inspectTitle": "插件详情",
+    "inspectDesc": "来自 OpenClaw CLI 的详细元数据与运行信息",
+    "inspectLoading": "正在加载插件详情...",
+    "inspectEmpty": "无详细输出",
+    "inspectError": "获取详情失败：{{error}}",
+    "doctor": "诊断",
+    "doctorTitle": "插件诊断",
+    "doctorDesc": "来自 `openclaw plugins doctor` 的问题诊断报告",
+    "doctorRunning": "正在运行诊断...",
+    "doctorEmpty": "无诊断输出",
+    "doctorError": "诊断失败：{{error}}",
+    "marketplacePlaceholder": "输入市场名称（例如：claude-plugins-official）",
+    "marketplaceNameRequired": "请先输入市场名称",
+    "marketplaceList": "市场列表",
+    "marketplaceKnown": "已知：",
+    "marketplaceLoadError": "加载市场列表失败：{{error}}",
+    "marketplaceListError": "获取市场插件失败：{{error}}",
+    "marketplaceEmpty": "市场「{{marketplace}}」暂无可用插件",
+    "marketplaceLocalFallback": "当前 OpenClaw 版本不支持市场列表，已回退到本地缓存（{{marketplace}}）",
+    "marketplaceSourceCli": "来源：OpenClaw CLI",
+    "marketplaceSourceLocal": "来源：本地缓存",
+    "marketplaceMore": "还有 {{count}} 个"
   }
 }

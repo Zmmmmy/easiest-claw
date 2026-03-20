@@ -67,6 +67,7 @@ const METHOD_ALLOWLIST = new Set<string>([
   'skills.update',
   'skills.install',
   'tools.catalog',
+  'channels.status',
 ])
 
 type PendingRequest = {
@@ -199,6 +200,14 @@ export class GatewayAdapter {
       } catch (e) {
         console.warn('[GatewayAdapter] Could not load device identity, will connect without device auth:', e)
       }
+    }
+
+    // ── 清理旧连接：防止重连时两个 WebSocket 同时存在 ─────────────────────────
+    if (this.ws) {
+      const oldWs = this.ws
+      this.ws = null
+      oldWs.removeAllListeners()
+      oldWs.terminate()
     }
 
     const settings = this.loadGatewaySettings()

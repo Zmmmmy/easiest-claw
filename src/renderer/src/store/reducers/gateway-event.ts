@@ -3,6 +3,14 @@ import type { GatewayEvent } from "@/hooks/use-openclaw"
 import type { Message, ContentBlock } from "@/types"
 import { extractTextContent, uniqueId, isRecord, resolveAgentIdFromPayload } from "../app-utils"
 
+// Track finalized runIds to prevent duplicate processing (e.g. gateway replays)
+// Use a Map<runId, timestamp> so we can skip only events that arrive significantly later
+const finalizedRunIds = new Map<string, number>()
+const MAX_FINALIZED_IDS = 200
+// Grace period: ignore the dedup check for events arriving within this window
+// (handles React StrictMode double-invocation of reducers)
+const DEDUP_GRACE_MS = 500
+
 export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppState {
   if (event.type !== "gateway.event") return state
   if (!isRecord(event.payload)) return state
@@ -18,6 +26,17 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
   const conversationId = groupMatch ? groupMatch[1] : `conv-${agentId}`
   const runId = typeof payload.runId === "string" ? payload.runId : ""
 
+  // Skip duplicate chat events for already-finalized runs (e.g. gateway replays)
+  // Only filter chat events — agent events (lifecycle, tool, compaction) must always be processed
+  // Use a grace period to avoid conflicts with React StrictMode double-invocation
+  if (runId && eventName === "chat") {
+    const finalizedAt = finalizedRunIds.get(runId)
+    if (finalizedAt && (Date.now() - finalizedAt) > DEDUP_GRACE_MS) {
+      console.log(`[GW-DEDUP] Skipping chat event for finalized runId=${runId} age=${Date.now() - finalizedAt}ms`)
+      return state
+    }
+  }
+
   const makeTimestamp = () =>
     new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
 
@@ -27,18 +46,40 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
   const streamingId = runId ? `streaming-${runId}` : ""
 
   const findStreamingIdx = (msgs: Message[]): number => {
-    // Primary: match by runId-based streaming ID
     if (streamingId) {
-      const idx = msgs.findLastIndex((m) => m.id === streamingId)
-      if (idx !== -1) return idx
+      return msgs.findLastIndex((m) => m.id === streamingId)
     }
-    // Fallback: match any streaming message from this agent
-    return msgs.findLastIndex(
-      (m) => m.senderId === agentId && m.id.startsWith("streaming-")
-    )
+    return -1
   }
 
-  const finalizeStreaming = (): AppState => {
+  /**
+   * Freeze the current streaming text (message.content) into a "text" contentBlock,
+   * then clear message.content. This mirrors OpenClaw webui's chatStreamSegments mechanism:
+   * each tool-start freezes the accumulated text so far into a segment.
+   */
+  const freezeContentToBlock = (msg: Message): Message => {
+    const text = msg.content?.trim()
+    if (!text) return { ...msg, content: "" }
+    const blocks: ContentBlock[] = [...(msg.contentBlocks ?? [])]
+    // Avoid duplicate: don't freeze if the last block is already this exact text
+    const lastBlock = blocks[blocks.length - 1]
+    if (lastBlock?.type === "text" && lastBlock.text === text) {
+      return { ...msg, content: "" }
+    }
+    blocks.push({ type: "text", text })
+    return { ...msg, content: "", contentBlocks: blocks }
+  }
+
+  const finalizeStreaming = (finalContent?: string): AppState => {
+    // Mark this run as finalized to prevent duplicate processing
+    if (runId) {
+      finalizedRunIds.set(runId, Date.now())
+      if (finalizedRunIds.size > MAX_FINALIZED_IDS) {
+        const first = finalizedRunIds.keys().next().value
+        if (first) finalizedRunIds.delete(first)
+      }
+    }
+
     const next = new Set(state.thinkingAgents)
     next.delete(agentId)
     const updatedAgents = state.agents.map((a) =>
@@ -49,12 +90,55 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
     let updatedMsgs = existing
     if (streamIdx !== -1) {
       updatedMsgs = [...existing]
-      updatedMsgs[streamIdx] = { ...existing[streamIdx], id: uniqueId("msg") }
+      let msg = existing[streamIdx]
+
+      // If there's trailing content not yet frozen into blocks, freeze it now
+      if (msg.content?.trim()) {
+        msg = freezeContentToBlock(msg)
+      }
+
+      // final content is the full cumulative text for the entire run.
+      // If we already have contentBlocks (frozen text segments + tool calls),
+      // the text is already captured — don't duplicate it.
+      const isNoReply = finalContent === "NO_REPLY"
+      const usableFinal = (!isNoReply && finalContent?.trim()) || ""
+      if (usableFinal) {
+        const blocks: ContentBlock[] = [...(msg.contentBlocks ?? [])]
+        if (blocks.length === 0) {
+          msg = { ...msg, content: usableFinal }
+        } else {
+          const textBlocks = blocks
+            .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+            .map((b) => b.text)
+          if (textBlocks.length === 0) {
+            blocks.push({ type: "text", text: usableFinal })
+            msg = { ...msg, content: "", contentBlocks: blocks }
+          } else {
+            const joinedText = textBlocks.join("")
+            if (usableFinal.startsWith(joinedText)) {
+              const tail = usableFinal.slice(joinedText.length)
+              if (tail.trim()) {
+                const lastBlock = blocks[blocks.length - 1]
+                if (!(lastBlock?.type === "text" && lastBlock.text === tail)) {
+                  blocks.push({ type: "text", text: tail })
+                  msg = { ...msg, content: "", contentBlocks: blocks }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      updatedMsgs[streamIdx] = { ...msg, id: runId ? `msg-${runId}` : uniqueId("msg") }
     }
-    const lastContent = updatedMsgs[updatedMsgs.length - 1]?.content ?? ""
+    const lastMsg = updatedMsgs[updatedMsgs.length - 1]
+    // For lastMessage preview, extract text from contentBlocks or content
+    const preview = lastMsg?.contentBlocks?.length
+      ? (lastMsg.contentBlocks.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join(" ") || lastMsg.content)
+      : (lastMsg?.content ?? "")
     const updatedConvs = state.conversations.map((c) =>
       c.id === conversationId
-        ? { ...c, lastMessage: lastContent.slice(0, 100), lastMessageTime: makeTimestamp(),
+        ? { ...c, lastMessage: preview.slice(0, 100), lastMessageTime: makeTimestamp(),
             unreadCount: state.activeConversationId === conversationId ? 0 : c.unreadCount + 1 }
         : c
     )
@@ -100,77 +184,24 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
       return state
     }
 
-    // ── delta: cumulative text update ─────────────────────────────────
+    // ── delta: no-op ──────────────────────────────────────────────────────
+    // Text streaming is driven by agent/stream=assistant events (precise deltas).
+    // chat/delta is a cumulative snapshot — applying it causes duplication.
+    // Thinking state is managed by lifecycle/start and lifecycle/end.
+    // Message placeholder is created by the first agent/assistant delta.
     if (chatState === "delta") {
-      const rawContent = isRecord(payload.message)
-        ? (payload.message as Record<string, unknown>).content ?? (payload.message as Record<string, unknown>).text : ""
-      const content = extractTextContent(rawContent)
-      if (!content) return state
-
-      const next = new Set(state.thinkingAgents)
-      next.add(agentId)
-      const updatedAgents = state.agents.map((a) =>
-        a.id === agentId ? { ...a, status: "thinking" as const } : a
-      )
-      const withThinking = { ...state, thinkingAgents: next, agents: updatedAgents }
-      const existing = withThinking.messages[conversationId] ?? []
-      const streamIdx = findStreamingIdx(existing)
-
-      if (streamIdx !== -1) {
-        // Update text, preserve existing contentBlocks (tool calls added by agent events)
-        const updatedMsgs = [...existing]
-        updatedMsgs[streamIdx] = { ...existing[streamIdx], content }
-        return { ...withThinking, messages: { ...withThinking.messages, [conversationId]: updatedMsgs } }
-      }
-
-      // Create new streaming message
-      const agent = findAgent()
-      const newMsg: Message = {
-        id: streamingId || uniqueId(`streaming-${agentId}`),
-        conversationId, senderId: agentId,
-        senderName: agent?.name ?? agentId,
-        senderAvatar: agent?.avatar ?? agentId.slice(0, 2).toUpperCase(),
-        senderRole: agent?.role, content, timestamp: makeTimestamp(),
-        read: state.activeConversationId === conversationId, type: "text",
-      }
-      return { ...withThinking, messages: { ...withThinking.messages, [conversationId]: [...existing, newMsg] } }
+      return state
     }
 
-    // ── final: finalize streaming message, keep accumulated contentBlocks ─
+    // ── final: finalize streaming message ────────────────────────────
     if (chatState === "final") {
       const rawContent = isRecord(payload.message)
         ? (payload.message as Record<string, unknown>).content ?? (payload.message as Record<string, unknown>).text : ""
       const content = extractTextContent(rawContent)
-
-      const existing = state.messages[conversationId] ?? []
-      const streamIdx = findStreamingIdx(existing)
-
-      if (streamIdx !== -1) {
-        // Preserve contentBlocks that were accumulated via tool events during streaming
-        const streamMsg = existing[streamIdx]
-        const updated: Message = {
-          ...streamMsg,
-          id: uniqueId("msg"),
-          ...(content ? { content } : {}),
-        }
-        const next = new Set(state.thinkingAgents)
-        next.delete(agentId)
-        const updatedAgents = state.agents.map((a) =>
-          a.id === agentId ? { ...a, status: "idle" as const } : a
-        )
-        const updatedMsgs = [...existing]
-        updatedMsgs[streamIdx] = updated
-        const updatedConvs = state.conversations.map((c) =>
-          c.id === conversationId
-            ? { ...c, lastMessage: (content || streamMsg.content).slice(0, 100),
-                lastMessageTime: makeTimestamp(),
-                unreadCount: state.activeConversationId === conversationId ? 0 : c.unreadCount + 1 }
-            : c
-        )
-        return { ...state, thinkingAgents: next, agents: updatedAgents,
-          messages: { ...state.messages, [conversationId]: updatedMsgs }, conversations: updatedConvs }
-      }
-      return finalizeStreaming()
+      console.log(`[GW-FINAL] runId=${runId} content="${content.slice(0, 50)}" thinkingAgents=[${[...state.thinkingAgents]}]`)
+      // "NO_REPLY" is a sentinel value meaning no text response — treat as empty
+      const effectiveContent = content === "NO_REPLY" ? "" : content
+      return finalizeStreaming(effectiveContent)
     }
 
     if (chatState === "aborted" || chatState === "error") {
@@ -190,6 +221,8 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
 
     if (stream === "lifecycle") {
       if (phase === "start") {
+        // New run starting — clear any stale finalized marker for this runId
+        if (runId) finalizedRunIds.delete(runId)
         const next = new Set(state.thinkingAgents)
         next.add(agentId)
         const updatedAgents = state.agents.map((a) =>
@@ -198,6 +231,7 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
         return { ...state, thinkingAgents: next, agents: updatedAgents }
       }
       if (phase === "end" || phase === "error") {
+        console.log(`[GW-LIFECYCLE] ${phase} runId=${runId} agentId=${agentId} thinkingAgents=[${[...state.thinkingAgents]}]`)
         const next = new Set(state.thinkingAgents)
         next.delete(agentId)
         return { ...state, thinkingAgents: next }
@@ -205,8 +239,53 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
       return state
     }
 
+    // ── compaction: no-op in reducer (compaction is handled by app-context) ─
+    if (stream === "compaction") {
+      return state
+    }
+
+    // ── assistant stream: append delta text to streaming message ─────────
+    // agent/stream=assistant provides precise per-token deltas; use these
+    // to drive text streaming instead of the cumulative chat/delta snapshots.
+    if (stream === "assistant" && data) {
+      const delta = typeof data.delta === "string" ? data.delta : ""
+      if (!delta) return state
+
+      // Skip delta if this run is already finalized (late-arriving deltas after chat/final)
+      if (runId && finalizedRunIds.has(runId)) return state
+
+      const existing = state.messages[conversationId] ?? []
+      let streamIdx = findStreamingIdx(existing)
+      let msgs = existing
+
+      if (streamIdx === -1) {
+        // Create streaming message placeholder on first delta
+        const agent = findAgent()
+        const newMsg: Message = {
+          id: streamingId || uniqueId(`streaming-${agentId}`),
+          conversationId, senderId: agentId,
+          senderName: agent?.name ?? agentId,
+          senderAvatar: agent?.avatar ?? agentId.slice(0, 2).toUpperCase(),
+          senderRole: agent?.role, content: "", timestamp: makeTimestamp(),
+          read: state.activeConversationId === conversationId, type: "text",
+        }
+        msgs = [...existing, newMsg]
+        streamIdx = msgs.length - 1
+      }
+
+      const streamMsg = msgs[streamIdx]
+      const updatedMsgs = [...msgs]
+      updatedMsgs[streamIdx] = { ...streamMsg, content: (streamMsg.content ?? "") + delta }
+      return { ...state, messages: { ...state.messages, [conversationId]: updatedMsgs } }
+    }
+
     // ── tool events: inject toolCall blocks into streaming message ────
+    // On tool-start, freeze current text into a "text" contentBlock (segment),
+    // then add the toolCall block. This produces interleaved text/tool rendering.
     if (stream === "tool" && data) {
+      // Skip tool events for already-finalized runs
+      if (runId && finalizedRunIds.has(runId)) return state
+
       const toolCallId = typeof data.toolCallId === "string" ? data.toolCallId : ""
       const toolName = typeof data.name === "string" ? data.name : ""
 
@@ -231,10 +310,11 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
           streamIdx = msgs.length - 1
         }
 
-        const streamMsg = msgs[streamIdx]
+        // Freeze current text content into a text block before adding tool
+        let streamMsg = freezeContentToBlock(msgs[streamIdx])
         const blocks: ContentBlock[] = [...(streamMsg.contentBlocks ?? [])]
 
-        // Parse arguments from data.args (may be string or object)
+        // Parse arguments
         let args: Record<string, unknown> = {}
         if (typeof data.args === "string") {
           try { args = JSON.parse(data.args) } catch { args = { raw: data.args } }
@@ -242,7 +322,7 @@ export function handleGatewayEvent(state: AppState, event: GatewayEvent): AppSta
           args = data.args as Record<string, unknown>
         }
 
-        // Add thinking block from data.text if present and no thinking block yet
+        // Add thinking block if present
         const thinkingText = typeof data.text === "string" ? data.text.trim() : ""
         if (thinkingText && !blocks.some((b) => b.type === "thinking")) {
           blocks.push({ type: "thinking", thinking: thinkingText })

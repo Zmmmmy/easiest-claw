@@ -64,4 +64,6 @@ export interface AppContextValue {
   resetSession: (conversationId: string) => void
   abortConversation: (conversationId: string) => void
   checkModelsConfigured: () => Promise<void>
+  compactingConversationIds: Set<string>
+  compactedConversationIds: Set<string>
 }

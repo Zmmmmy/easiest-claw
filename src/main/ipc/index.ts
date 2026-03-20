@@ -11,6 +11,7 @@ import { registerSkillsHandlers } from './skills'
 import { registerUpdateHandlers } from './update'
 import { registerProviderHealthHandlers } from './provider-health'
 import { registerChannelHandlers } from './channels'
+import { registerPluginHandlers } from './plugins'
 
 export const registerAllIpcHandlers = (ipcMain: IpcMain): void => {
   registerChatHandlers(ipcMain)
@@ -25,4 +26,5 @@ export const registerAllIpcHandlers = (ipcMain: IpcMain): void => {
   registerUpdateHandlers(ipcMain)
   registerProviderHealthHandlers(ipcMain)
   registerChannelHandlers(ipcMain)
+  registerPluginHandlers(ipcMain)
 }

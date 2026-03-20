@@ -201,11 +201,12 @@ export function ChatWindow() {
   }
 
   const isGroup = conversation.type === "group"
-  const thinkingAgents = conversation.members.filter((id) =>
+  const uniqueMemberIds = Array.from(new Set(conversation.members))
+  const thinkingAgents = uniqueMemberIds.filter((id) =>
     state.thinkingAgents.has(id)
   )
 
-  const members = conversation.members
+  const members = uniqueMemberIds
     .map((id) => {
       if (id === "user") return { id, name: t("common.meHuman") }
       const a = state.agents.find((ag) => ag.id === id)
@@ -214,15 +215,20 @@ export function ChatWindow() {
     .filter((m): m is NonNullable<typeof m> => m != null)
 
   // Build message list with date separators
-  const items: Array<{ type: "date"; label: string; key: string } | { type: "msg"; msg: Message }> = []
+  const items: Array<{ type: "date"; label: string; key: string } | { type: "msg"; msg: Message; key: string }> = []
   let lastDateKey = ""
+  const messageKeyCount = new Map<string, number>()
   for (const msg of messages) {
     const dk = getDateKey(msg.timestamp)
     if (dk && dk !== lastDateKey) {
       items.push({ type: "date", label: formatDateSeparator(msg.timestamp, t), key: `sep-${dk}` })
       lastDateKey = dk
     }
-    items.push({ type: "msg", msg })
+    const baseKey = `msg-${msg.id}`
+    const seenCount = messageKeyCount.get(baseKey) ?? 0
+    messageKeyCount.set(baseKey, seenCount + 1)
+    const key = seenCount === 0 ? baseKey : `${baseKey}-${seenCount}`
+    items.push({ type: "msg", msg, key })
   }
 
   return (
@@ -248,7 +254,7 @@ export function ChatWindow() {
                 <DateSeparator key={item.key} label={item.label} />
               ) : (
                 <MessageBubble
-                  key={item.msg.id}
+                  key={item.key}
                   message={item.msg}
                   showSenderInfo={isGroup}
                   onAgentAvatarClick={handleAgentAvatarClick}

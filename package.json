@@ -16,7 +16,10 @@
     "build:win": "npm run bundle:openclaw && npm run build && electron-builder --win",
     "build:mac": "npm run bundle:openclaw && npm run build && electron-builder --mac",
     "build:linux": "npm run bundle:openclaw && npm run build && electron-builder --linux",
-    "lint": "eslint . --ext .ts,.tsx"
+    "setup:githooks": "git config core.hooksPath .githooks",
+    "check:encoding": "node scripts/check-text-encoding.mjs",
+    "fix:encoding": "node scripts/check-text-encoding.mjs --fix-bom",
+    "lint": "npm run check:encoding && eslint . --ext .ts,.tsx"
   },
   "dependencies": {
     "@base-ui/react": "^1.2.0",

@@ -44,7 +44,7 @@ interface ChatHeaderProps {
 }
 
 export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, onToggleSessionHistory, onAgentAvatarClick }: ChatHeaderProps) {
-  const { state, dispatch, refreshFleet } = useApp()
+  const { state, dispatch, refreshFleet, compactingConversationIds, compactedConversationIds } = useApp()
   const { t } = useI18n()
   const [renameOpen, setRenameOpen] = useState(false)
   const [avatarOpen, setAvatarOpen] = useState(false)
@@ -72,13 +72,16 @@ export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, o
           ? t("header.status.thinking")
             : t("header.status.online")
 
+  const isCompactingContext = compactingConversationIds.has(conversation.id)
+  const isContextCompacted = !isCompactingContext && compactedConversationIds.has(conversation.id)
+  const showContextBadge = isCompactingContext || isContextCompacted
   const handleUnavailableAction = (actionLabel: string) => {
     toast.info(t("header.unavailableAction", { action: actionLabel }))
   }
 
   return (
     <div
-      className="h-12 flex items-center justify-between px-4 border-b bg-background"
+      className="h-12 flex items-center justify-start gap-2 px-4 border-b bg-background"
       style={{
         WebkitAppRegion: "drag",
         ...(window.ipc.platform !== "darwin" && { paddingRight: "154px" }),
@@ -147,8 +150,33 @@ export function ChatHeader({ conversation, onToggleMembers, onToggleWorkspace, o
         </div>
       </div>
 
+      <div className="flex-1 min-w-0 h-6 flex items-center">
+        <div className="w-[140px]">
+          {showContextBadge && (
+            <Badge
+              variant="secondary"
+              className={cn(
+                "h-5 px-1.5 text-[10px] font-medium shrink-0 border",
+                isCompactingContext
+                  ? "bg-blue-50 text-blue-700 border-blue-200"
+                  : "bg-emerald-50 text-emerald-700 border-emerald-200"
+              )}
+            >
+              {isCompactingContext ? (
+                <span className="flex items-center gap-1">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  <span>{t("header.contextCompacting")}</span>
+                </span>
+              ) : (
+                <span>{t("header.contextCompacted")}</span>
+              )}
+            </Badge>
+          )}
+        </div>
+      </div>
+
       <div
-        className="flex items-center gap-0.5 shrink-0"
+        className="flex items-center gap-0.5 shrink-0 ml-auto"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         {isGroup && onToggleMembers && (

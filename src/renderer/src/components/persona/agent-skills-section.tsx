@@ -114,7 +114,7 @@ export function AgentSkillsSection({ agentId }: AgentSkillsSectionProps) {
   }
 
   return (
-    <div className="flex flex-col gap-3 overflow-y-auto">
+    <div className="flex flex-col gap-3 overflow-y-auto overflow-x-hidden">
       {/* Hint message */}
       <div
         className={cn(
@@ -144,7 +144,7 @@ export function AgentSkillsSection({ agentId }: AgentSkillsSectionProps) {
             <label
               key={skill.name}
               className={cn(
-                "flex items-center gap-3 px-2 py-2 rounded-md cursor-pointer transition-colors",
+                "flex w-full items-start gap-3 px-2 py-2 rounded-md cursor-pointer transition-colors",
                 "hover:bg-accent/50",
                 (saving) && "opacity-50 pointer-events-none"
               )}
@@ -156,10 +156,10 @@ export function AgentSkillsSection({ agentId }: AgentSkillsSectionProps) {
                 className="h-3.5 w-3.5 shrink-0 accent-primary"
               />
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium">{skill.name}</span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-medium truncate" title={skill.name}>{skill.name}</span>
                   {skill.version && (
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-[10px] text-muted-foreground shrink-0">
                       v{skill.version}
                     </span>
                   )}
@@ -168,7 +168,7 @@ export function AgentSkillsSection({ agentId }: AgentSkillsSectionProps) {
                   )}
                 </div>
                 {skill.description && (
-                  <p className="text-[11px] text-muted-foreground truncate">
+                  <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2 break-all" title={skill.description}>
                     {skill.description}
                   </p>
                 )}

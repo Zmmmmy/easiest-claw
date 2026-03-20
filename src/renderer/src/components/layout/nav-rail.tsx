@@ -1,7 +1,7 @@
 
 
 import { useEffect, useRef, useState } from "react"
-import { Activity, Bot, Clock, Loader2, MessageSquare, MessageSquarePlus, Puzzle, Radio, Settings, UserPlus, Users } from "lucide-react"
+import { Activity, Blocks, Bot, Clock, Loader2, MessageSquare, MessageSquarePlus, Puzzle, Radio, Settings, UserPlus, Users } from "lucide-react"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -139,6 +139,11 @@ export function NavRail() {
       id: "channels",
       label: t("nav.channels"),
       icon: <Radio className="h-5 w-5" />,
+    },
+    {
+      id: "plugins",
+      label: t("nav.plugins"),
+      icon: <Blocks className="h-5 w-5" />,
     },
   ]
 

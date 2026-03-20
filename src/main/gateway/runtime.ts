@@ -14,7 +14,9 @@ export const startRuntime = async (
 ): Promise<void> => {
   eventCallback = onEvent
   deviceIdentityPath = identityPath
-  adapter = new GatewayAdapter((event) => { eventCallback?.(event) }, deviceIdentityPath)
+  if (!adapter) {
+    adapter = new GatewayAdapter((event) => { eventCallback?.(event) }, deviceIdentityPath)
+  }
   // Start in background — don't block app startup if gateway is unavailable
   void adapter.start().catch(() => {})
 }

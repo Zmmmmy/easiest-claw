@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+
+echo "正在执行文本编码检查..."
+npm run check:encoding
+status=$?
+if [ $status -ne 0 ]; then
+  echo "编码检查未通过，已阻止本次提交。"
+  exit $status
+fi

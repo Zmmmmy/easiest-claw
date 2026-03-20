@@ -27,7 +27,8 @@
     "settings": "Settings",
     "changeMyAvatar": "Change my avatar",
     "changeMyAvatarDescription": "After you confirm, a file picker opens and the selected image replaces your current avatar immediately.",
-    "channels": "Channels"
+    "channels": "Channels",
+    "plugins": "Plugins"
   },
   "topNav": {
     "connection": {
@@ -250,7 +251,9 @@
     "refreshBatch": "Refresh",
     "orUploadCustom": "Or upload a custom avatar",
     "clickToUpload": "Click to upload an image",
-    "uploadSupport": "Supports JPG, PNG, WebP up to 2MB"
+    "uploadSupport": "Supports JPG, PNG, WebP up to 2MB",
+    "contextCompacting": "Compressing context",
+    "contextCompacted": "Context compressed"
   },
   "groupMembers": {
     "title": "Members ({{count}})",
@@ -498,5 +501,76 @@
     "detailTitle": "Skill details",
     "files": "Files",
     "noFiles": "No files found"
+  },
+  "plugins": {
+    "title": "Plugins",
+    "description": "View and manage installed OpenClaw plugins",
+    "empty": "No plugins installed",
+    "loading": "Loading plugins...",
+    "loadError": "Load plugins failed: {{error}}",
+    "refresh": "Refresh",
+    "search": "Search plugins...",
+    "install": "Install",
+    "installing": "Installing...",
+    "installPlaceholder": "Enter npm spec / local path / archive path",
+    "installSpecRequired": "Please enter an install source",
+    "installSuccess": "Installed: {{spec}}",
+    "installError": "Install failed: {{error}}",
+    "linkInstall": "Link install (--link)",
+    "pinInstall": "Pin version (--pin)",
+    "marketplacePlaceholder": "Enter marketplace name (for example: claude-plugins-official)",
+    "marketplaceNameRequired": "Please enter a marketplace name",
+    "marketplaceList": "List Marketplace",
+    "marketplaceKnown": "Known:",
+    "marketplaceLoadError": "Load marketplace list failed: {{error}}",
+    "marketplaceListError": "List marketplace plugins failed: {{error}}",
+    "marketplaceEmpty": "No plugins found in marketplace \"{{marketplace}}\"",
+    "marketplaceLocalFallback": "Current OpenClaw does not expose marketplace listing, using local cache for \"{{marketplace}}\"",
+    "marketplaceSourceCli": "Source: OpenClaw CLI",
+    "marketplaceSourceLocal": "Source: local cache",
+    "marketplaceMore": "+{{count}} more",
+    "enable": "Enable",
+    "disable": "Disable",
+    "enableSuccess": "Enabled \"{{name}}\"",
+    "enableError": "Enable failed: {{error}}",
+    "disableSuccess": "Disabled \"{{name}}\"",
+    "disableError": "Disable failed: {{error}}",
+    "update": "Update",
+    "updateAll": "Update All",
+    "updateSuccess": "Updated \"{{name}}\"",
+    "updateAllSuccess": "All tracked plugins updated",
+    "updateError": "Update failed: {{error}}",
+    "inspect": "Inspect",
+    "inspectTitle": "Plugin Details",
+    "inspectDesc": "Detailed metadata and runtime info from OpenClaw CLI",
+    "inspectLoading": "Loading plugin details...",
+    "inspectEmpty": "No detail output",
+    "inspectError": "Inspect failed: {{error}}",
+    "doctor": "Doctor",
+    "doctorTitle": "Plugin Diagnostics",
+    "doctorDesc": "Issue-focused report from `openclaw plugins doctor`",
+    "doctorRunning": "Running diagnostics...",
+    "doctorEmpty": "No diagnostic output",
+    "doctorError": "Diagnostics failed: {{error}}",
+    "uninstall": "Uninstall",
+    "uninstalling": "Uninstalling...",
+    "uninstallConfirmTitle": "Confirm uninstall",
+    "uninstallConfirmDesc": "Are you sure you want to uninstall \"{{name}}\"? This will remove plugin files and configuration. This cannot be undone.",
+    "uninstallSuccess": "Plugin \"{{name}}\" has been uninstalled",
+    "uninstallError": "Uninstall failed: {{error}}",
+    "cannotUninstallBundled": "Built-in plugins cannot be uninstalled",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "origin": {
+      "bundled": "Built-in",
+      "installed": "Installed",
+      "load-path": "Local"
+    },
+    "kind": {
+      "memory": "Memory",
+      "context-engine": "Context Engine"
+    },
+    "version": "Version",
+    "restartHint": "Restart gateway for changes to take effect"
   }
 }

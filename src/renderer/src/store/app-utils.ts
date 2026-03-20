@@ -214,7 +214,7 @@ let _idCounter = 0
 export const uniqueId = (prefix: string): string =>
   `${prefix}-${Date.now()}-${(++_idCounter).toString(36)}`
 
-export const VALID_VIEWS: ViewType[] = ["chat", "virtual-team", "cron", "openclaw", "skills", "agent-config", "channels"]
+export const VALID_VIEWS: ViewType[] = ["chat", "virtual-team", "cron", "openclaw", "skills", "agent-config", "channels", "plugins"]
 
 export const parseViewFromHash = (): ViewType => {
   if (typeof window === "undefined") return "chat"

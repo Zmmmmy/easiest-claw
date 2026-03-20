@@ -131,7 +131,8 @@ export function handleChatAction(state: AppState, action: AppAction): AppState |
           senderName: isUser ? "\u6211" : (agent?.name ?? agentId),
           senderAvatar: isUser ? "ZK" : (agent?.avatar ?? agentId.slice(0, 2).toUpperCase()),
           senderRole: isUser ? undefined : agent?.role,
-          content,
+          // If contentBlocks exist, content is redundant (already split into blocks)
+          content: contentBlocks.length > 0 ? "" : content,
           timestamp: ts,
           read: true,
           type: "text" as const,
@@ -155,19 +156,28 @@ export function handleChatAction(state: AppState, action: AppAction): AppState |
 
       if (converted.length === 0) return state
 
-      // Keep any in-progress streaming messages that arrived via SSE
+      // Only keep in-progress streaming messages (streaming- prefix).
+      // Finalized messages (msg- prefix) are already included in `converted` from history.
+      // lifecycle/end no longer triggers LOAD_HISTORY, so there is no race condition.
       const existing = state.messages[conversationId] ?? []
       const streamingMsgs = existing.filter((m) => m.id.startsWith("streaming-"))
 
+      // If there are active streaming messages, skip loading history to avoid
+      // showing the same message twice (history version + streaming version).
+      if (streamingMsgs.length > 0) return state
+
       const lastMsg = converted[converted.length - 1]
+      const lastMsgPreview = lastMsg.contentBlocks && lastMsg.contentBlocks.length > 0
+        ? lastMsg.contentBlocks.filter((b) => b.type === "text").map((b) => (b as { type: "text"; text: string }).text).join(" ")
+        : lastMsg.content
       const updatedConvs = state.conversations.map((c) =>
         c.id === conversationId
-          ? { ...c, lastMessage: lastMsg.content.slice(0, 100), lastMessageTime: lastMsg.timestamp }
+          ? { ...c, lastMessage: lastMsgPreview.slice(0, 100), lastMessageTime: lastMsg.timestamp }
           : c
       )
       return {
         ...state,
-        messages: { ...state.messages, [conversationId]: [...converted, ...streamingMsgs] },
+        messages: { ...state.messages, [conversationId]: converted },
         conversations: updatedConvs,
       }
     }

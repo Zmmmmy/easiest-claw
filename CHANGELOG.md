@@ -500,3 +500,4 @@
 - `resources/installer.nsh` 改为从 `installer.nsh.template` 模板生成，不再手动编辑
 
 ---
+

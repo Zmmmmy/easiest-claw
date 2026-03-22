@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react"
 import { useEffect, useState } from "react"
-import { Eye, EyeOff, Loader2, Radio, RefreshCw, Save, Send } from "lucide-react"
+import { ArrowDown, ArrowUp, CircleHelp, Code2, Eye, EyeOff, Loader2, Plus, Radio, RefreshCw, Save, Send, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,8 +14,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { useI18n } from "@/i18n"
+import { useI18n, type Translate } from "@/i18n"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,37 @@ interface ChannelMeta {
   icon: ReactNode
   nameKey: string
   descKey: string
+}
+
+type FeishuAccountDraft = {
+  id: string
+  enabled: boolean
+  appId: string
+  appSecret: string
+  botName: string
+  domain: string
+}
+
+type TelegramAccountDraft = {
+  id: string
+  enabled: boolean
+  name: string
+  botToken: string
+  tokenFile: string
+}
+
+type BindingPeerKind = "any" | "dm" | "group"
+
+type BindingDraft = {
+  agentId: string
+  accountId: string
+  peerKind: BindingPeerKind
+  peerId: string
+}
+
+type GroupRuleDraft = {
+  scopeId: string
+  requireMention: boolean
 }
 
 /** Feishu / Lark official logo */
@@ -62,10 +94,16 @@ type FeishuConfig = {
   allowFromInput?: string
   groupAllowFromInput?: string
   groupsInput?: string
+  useAdvancedGroups?: boolean
+  groupsDraft?: GroupRuleDraft[]
   accountsInput?: string
   bindingsInput?: string
+  useAdvancedAccounts?: boolean
+  useAdvancedBindings?: boolean
+  accountsDraft?: FeishuAccountDraft[]
+  bindingsDraft?: BindingDraft[]
+  accounts?: Record<string, unknown>
   webhookPortInput?: string
-  accounts?: Record<string, { appId?: string; appSecret?: string; botName?: string; domain?: string; enabled?: boolean }>
 }
 
 type TelegramConfig = {
@@ -86,9 +124,15 @@ type TelegramConfig = {
   allowFromInput?: string
   groupAllowFromInput?: string
   groupsInput?: string
+  useAdvancedGroups?: boolean
+  groupsDraft?: GroupRuleDraft[]
   accountsInput?: string
   bindingsInput?: string
-  accounts?: Record<string, { botToken?: string; tokenFile?: string; name?: string; enabled?: boolean }>
+  useAdvancedAccounts?: boolean
+  useAdvancedBindings?: boolean
+  accountsDraft?: TelegramAccountDraft[]
+  bindingsDraft?: BindingDraft[]
+  accounts?: Record<string, unknown>
 }
 
 type ChannelStatusAccount = {
@@ -193,6 +237,210 @@ const normalizeBindingsForChannel = (
   return { value: normalized }
 }
 
+const FEISHU_ACCOUNT_ALLOWED_KEYS = new Set(["appId", "appSecret", "botName", "domain", "enabled"])
+const TELEGRAM_ACCOUNT_ALLOWED_KEYS = new Set(["name", "botToken", "tokenFile", "enabled"])
+const GROUP_RULE_ALLOWED_KEYS = new Set(["requireMention"])
+const BINDING_ALLOWED_KEYS = new Set(["agentId", "match"])
+const BINDING_MATCH_ALLOWED_KEYS = new Set(["channel", "accountId", "peer"])
+const BINDING_PEER_ALLOWED_KEYS = new Set(["kind", "id"])
+
+const createNextAccountId = (prefix: string, existingIds: string[]): string => {
+  const taken = new Set(existingIds.map((id) => id.trim()).filter(Boolean))
+  for (let i = 1; i <= 9999; i += 1) {
+    const candidate = `${prefix}${i}`
+    if (!taken.has(candidate)) return candidate
+  }
+  return `${prefix}${Date.now()}`
+}
+
+const parseFeishuAccountDrafts = (value: unknown): { drafts: FeishuAccountDraft[]; simple: boolean } => {
+  if (!isRecord(value)) return { drafts: [], simple: true }
+  let simple = true
+  const drafts: FeishuAccountDraft[] = []
+  for (const [id, account] of Object.entries(value)) {
+    if (!isRecord(account)) {
+      simple = false
+      continue
+    }
+    if (Object.keys(account).some((key) => !FEISHU_ACCOUNT_ALLOWED_KEYS.has(key))) simple = false
+    drafts.push({
+      id,
+      enabled: account.enabled !== false,
+      appId: typeof account.appId === "string" ? account.appId : "",
+      appSecret: typeof account.appSecret === "string" ? account.appSecret : "",
+      botName: typeof account.botName === "string" ? account.botName : "",
+      domain: typeof account.domain === "string" ? account.domain : "",
+    })
+  }
+  return { drafts, simple }
+}
+
+const parseTelegramAccountDrafts = (value: unknown): { drafts: TelegramAccountDraft[]; simple: boolean } => {
+  if (!isRecord(value)) return { drafts: [], simple: true }
+  let simple = true
+  const drafts: TelegramAccountDraft[] = []
+  for (const [id, account] of Object.entries(value)) {
+    if (!isRecord(account)) {
+      simple = false
+      continue
+    }
+    if (Object.keys(account).some((key) => !TELEGRAM_ACCOUNT_ALLOWED_KEYS.has(key))) simple = false
+    drafts.push({
+      id,
+      enabled: account.enabled !== false,
+      name: typeof account.name === "string" ? account.name : "",
+      botToken: typeof account.botToken === "string" ? account.botToken : "",
+      tokenFile: typeof account.tokenFile === "string" ? account.tokenFile : "",
+    })
+  }
+  return { drafts, simple }
+}
+
+const feishuDraftsToAccounts = (drafts: FeishuAccountDraft[]): { value?: Record<string, unknown>; error?: string } => {
+  const next: Record<string, unknown> = {}
+  const used = new Set<string>()
+  for (const draft of drafts) {
+    const id = draft.id.trim()
+    if (!id) return { error: "存在空的账号 ID，请先填写" }
+    if (used.has(id)) return { error: `账号 ID 重复：${id}` }
+    used.add(id)
+    const appId = draft.appId.trim()
+    const appSecret = draft.appSecret.trim()
+    if (!appId || !appSecret) return { error: `账号 ${id} 缺少 appId 或 appSecret` }
+    next[id] = {
+      appId,
+      appSecret,
+      ...(draft.botName.trim() ? { botName: draft.botName.trim() } : {}),
+      ...(draft.domain.trim() ? { domain: draft.domain.trim() } : {}),
+      ...(draft.enabled ? {} : { enabled: false }),
+    }
+  }
+  return { value: next }
+}
+
+const telegramDraftsToAccounts = (drafts: TelegramAccountDraft[]): { value?: Record<string, unknown>; error?: string } => {
+  const next: Record<string, unknown> = {}
+  const used = new Set<string>()
+  for (const draft of drafts) {
+    const id = draft.id.trim()
+    if (!id) return { error: "存在空的账号 ID，请先填写" }
+    if (used.has(id)) return { error: `账号 ID 重复：${id}` }
+    used.add(id)
+    const botToken = draft.botToken.trim()
+    const tokenFile = draft.tokenFile.trim()
+    if (!botToken && !tokenFile) return { error: `账号 ${id} 需要 botToken 或 tokenFile` }
+    next[id] = {
+      ...(draft.name.trim() ? { name: draft.name.trim() } : {}),
+      ...(botToken ? { botToken } : {}),
+      ...(tokenFile ? { tokenFile } : {}),
+      ...(draft.enabled ? {} : { enabled: false }),
+    }
+  }
+  return { value: next }
+}
+
+const parseGroupRuleDrafts = (value: unknown): { drafts: GroupRuleDraft[]; simple: boolean } => {
+  if (!isRecord(value)) return { drafts: [], simple: true }
+  let simple = true
+  const drafts: GroupRuleDraft[] = []
+  for (const [scopeId, rule] of Object.entries(value)) {
+    if (!isRecord(rule)) {
+      simple = false
+      continue
+    }
+    if (Object.keys(rule).some((key) => !GROUP_RULE_ALLOWED_KEYS.has(key))) simple = false
+    drafts.push({
+      scopeId,
+      requireMention: rule.requireMention === true,
+    })
+  }
+  return { drafts, simple }
+}
+
+const groupRuleDraftsToGroups = (drafts: GroupRuleDraft[]): { value?: Record<string, unknown>; error?: string } => {
+  if (drafts.length === 0) return { value: undefined }
+  const groups: Record<string, unknown> = {}
+  const used = new Set<string>()
+  for (const draft of drafts) {
+    const scopeId = draft.scopeId.trim()
+    if (!scopeId) return { error: "存在空的群组范围，请先填写 scopeId（例如 * 或群ID）" }
+    if (used.has(scopeId)) return { error: `群组范围重复：${scopeId}` }
+    used.add(scopeId)
+    groups[scopeId] = {
+      requireMention: draft.requireMention,
+    }
+  }
+  return { value: groups }
+}
+
+const parseBindingDrafts = (channelId: ChannelId, bindings: Record<string, unknown>[]): { drafts: BindingDraft[]; simple: boolean } => {
+  let simple = true
+  const drafts: BindingDraft[] = []
+  for (const binding of bindings) {
+    if (!isRecord(binding)) {
+      simple = false
+      continue
+    }
+    if (Object.keys(binding).some((key) => !BINDING_ALLOWED_KEYS.has(key))) simple = false
+    const match = isRecord(binding.match) ? binding.match : null
+    if (!match) {
+      simple = false
+      continue
+    }
+    if (Object.keys(match).some((key) => !BINDING_MATCH_ALLOWED_KEYS.has(key))) simple = false
+    const matchChannel = typeof match.channel === "string" ? match.channel : channelId
+    if (matchChannel !== channelId) {
+      simple = false
+      continue
+    }
+    let peerKind: BindingPeerKind = "any"
+    let peerId = ""
+    if (match.peer !== undefined) {
+      if (!isRecord(match.peer)) {
+        simple = false
+      } else {
+        if (Object.keys(match.peer).some((key) => !BINDING_PEER_ALLOWED_KEYS.has(key))) simple = false
+        const kind = typeof match.peer.kind === "string" ? match.peer.kind : ""
+        if (kind === "dm" || kind === "group") {
+          peerKind = kind
+          peerId = typeof match.peer.id === "string" ? match.peer.id : ""
+        } else {
+          simple = false
+        }
+      }
+    }
+    drafts.push({
+      agentId: typeof binding.agentId === "string" ? binding.agentId : "",
+      accountId: typeof match.accountId === "string" ? match.accountId : "",
+      peerKind,
+      peerId,
+    })
+  }
+  return { drafts, simple }
+}
+
+const bindingDraftsToBindings = (
+  channelId: ChannelId,
+  drafts: BindingDraft[],
+): { value?: Record<string, unknown>[]; error?: string } => {
+  const normalized: Record<string, unknown>[] = []
+  for (let idx = 0; idx < drafts.length; idx += 1) {
+    const draft = drafts[idx]
+    const agentId = draft.agentId.trim()
+    if (!agentId) return { error: `第 ${idx + 1} 条规则缺少 agentId` }
+    if ((draft.peerKind === "dm" || draft.peerKind === "group") && !draft.peerId.trim()) {
+      return { error: `第 ${idx + 1} 条规则缺少 peer.id` }
+    }
+    const match: Record<string, unknown> = { channel: channelId }
+    if (draft.accountId.trim()) match.accountId = draft.accountId.trim()
+    if (draft.peerKind === "dm" || draft.peerKind === "group") {
+      match.peer = { kind: draft.peerKind, id: draft.peerId.trim() }
+    }
+    normalized.push({ agentId, match })
+  }
+  return { value: normalized }
+}
+
 const pickChannelStatus = (payload: ChannelStatusPayload | null, channelId: ChannelId): ChannelStatusAccount | null => {
   const list = payload?.channelAccounts?.[channelId]
   if (!Array.isArray(list) || list.length === 0) return null
@@ -280,11 +528,19 @@ export function ChannelsView() {
           typeof fs.defaultAccount === "string" && fs.defaultAccount.trim()
             ? fs.defaultAccount.trim()
             : (isRecord(fsAccounts.main) ? "main" : "default")
-        const fsPrimary = isRecord(fsAccounts[fsDefaultAccount])
-          ? fsAccounts[fsDefaultAccount]
-          : isRecord(fsAccounts.main)
-            ? fsAccounts.main
-            : {}
+        const parsedFeishuAccounts = parseFeishuAccountDrafts(fs.accounts)
+        const feishuDrafts = parsedFeishuAccounts.drafts.length > 0
+          ? parsedFeishuAccounts.drafts
+          : [{
+              id: fsDefaultAccount || "main",
+              enabled: true,
+              appId: "",
+              appSecret: "",
+              botName: "",
+              domain: "",
+            }]
+        const parsedFeishuBindings = parseBindingDrafts("feishu", feishuBindings)
+        const parsedFeishuGroups = parseGroupRuleDrafts(fs.groups)
 
         setFeishuForm({
           enabled: fs.enabled !== false,
@@ -296,8 +552,14 @@ export function ChannelsView() {
           allowFromInput: joinList(fs.allowFrom),
           groupAllowFromInput: joinList(fs.groupAllowFrom),
           groupsInput: joinObject(fs.groups),
+          useAdvancedGroups: !parsedFeishuGroups.simple,
+          groupsDraft: parsedFeishuGroups.drafts,
           accountsInput: joinObject(fs.accounts),
           bindingsInput: joinArray(feishuBindings),
+          useAdvancedAccounts: !parsedFeishuAccounts.simple,
+          useAdvancedBindings: !parsedFeishuBindings.simple,
+          accountsDraft: feishuDrafts,
+          bindingsDraft: parsedFeishuBindings.drafts,
           verificationToken: fs.verificationToken ?? "",
           encryptKey: fs.encryptKey ?? "",
           webhookPath: typeof fs.webhookPath === "string" ? fs.webhookPath : "",
@@ -307,13 +569,6 @@ export function ChannelsView() {
           blockStreaming: fs.blockStreaming !== false,
           typingIndicator: fs.typingIndicator !== false,
           resolveSenderNames: fs.resolveSenderNames !== false,
-          accounts: {
-            main: {
-              appId: typeof fsPrimary.appId === "string" ? fsPrimary.appId : "",
-              appSecret: typeof fsPrimary.appSecret === "string" ? fsPrimary.appSecret : "",
-              botName: typeof fsPrimary.botName === "string" ? fsPrimary.botName : "",
-            },
-          },
         })
 
         // Populate telegram form
@@ -323,18 +578,23 @@ export function ChannelsView() {
           typeof tg.defaultAccount === "string" && tg.defaultAccount.trim()
             ? tg.defaultAccount.trim()
             : (isRecord(tgAccounts.default) ? "default" : "main")
-        const tgPrimary = isRecord(tgAccounts[tgDefaultAccount])
-          ? tgAccounts[tgDefaultAccount]
-          : isRecord(tgAccounts.main)
-            ? tgAccounts.main
-            : isRecord(tgAccounts.default)
-              ? tgAccounts.default
-              : {}
+        const parsedTelegramAccounts = parseTelegramAccountDrafts(tg.accounts)
+        const telegramDrafts = parsedTelegramAccounts.drafts.length > 0
+          ? parsedTelegramAccounts.drafts
+          : [{
+              id: tgDefaultAccount || "default",
+              enabled: true,
+              name: "",
+              botToken: typeof tg.botToken === "string" ? tg.botToken : "",
+              tokenFile: typeof tg.tokenFile === "string" ? tg.tokenFile : "",
+            }]
+        const parsedTelegramBindings = parseBindingDrafts("telegram", telegramBindings)
+        const parsedTelegramGroups = parseGroupRuleDrafts(tg.groups)
 
         setTelegramForm({
           enabled: tg.enabled !== false,
-          botToken: tg.botToken ?? (typeof tgPrimary.botToken === "string" ? tgPrimary.botToken : ""),
-          tokenFile: tg.tokenFile ?? (typeof tgPrimary.tokenFile === "string" ? tgPrimary.tokenFile : ""),
+          botToken: tg.botToken ?? "",
+          tokenFile: tg.tokenFile ?? "",
           defaultAccount: tgDefaultAccount,
           dmPolicy: tg.dmPolicy ?? "pairing",
           groupPolicy: tg.groupPolicy ?? "allowlist",
@@ -350,8 +610,14 @@ export function ChannelsView() {
           allowFromInput: joinList(tg.allowFrom),
           groupAllowFromInput: joinList(tg.groupAllowFrom),
           groupsInput: joinObject(tg.groups),
+          useAdvancedGroups: !parsedTelegramGroups.simple,
+          groupsDraft: parsedTelegramGroups.drafts,
           accountsInput: joinObject(tg.accounts),
           bindingsInput: joinArray(telegramBindings),
+          useAdvancedAccounts: !parsedTelegramAccounts.simple,
+          useAdvancedBindings: !parsedTelegramBindings.simple,
+          accountsDraft: telegramDrafts,
+          bindingsDraft: parsedTelegramBindings.drafts,
         })
 
         if (!b.ok && b.error) {
@@ -377,13 +643,29 @@ export function ChannelsView() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const rawBindingsInput = selected === "feishu" ? (feishuForm.bindingsInput ?? "") : (telegramForm.bindingsInput ?? "")
-      const bindingsParsed = parseArrayInput(rawBindingsInput)
-      if (bindingsParsed.error) {
-        toast.error(`多 Agent 路由配置无效：${bindingsParsed.error}`)
-        return
+      const useAdvancedBindings = selected === "feishu"
+        ? feishuForm.useAdvancedBindings === true
+        : telegramForm.useAdvancedBindings === true
+      let normalizedBindings: { value?: Record<string, unknown>[]; error?: string }
+      if (useAdvancedBindings) {
+        const rawBindingsInput = selected === "feishu" ? (feishuForm.bindingsInput ?? "") : (telegramForm.bindingsInput ?? "")
+        const bindingsParsed = parseArrayInput(rawBindingsInput)
+        if (bindingsParsed.error) {
+          toast.error(`多 Agent 路由配置无效：${bindingsParsed.error}`)
+          return
+        }
+        normalizedBindings = normalizeBindingsForChannel(selected, bindingsParsed.value ?? [])
+      } else {
+        const bindingDrafts = selected === "feishu" ? (feishuForm.bindingsDraft ?? []) : (telegramForm.bindingsDraft ?? [])
+        normalizedBindings = bindingDraftsToBindings(selected, bindingDrafts)
+        if (!normalizedBindings.error) {
+          if (selected === "feishu") {
+            setFeishuForm((prev) => ({ ...prev, bindingsInput: joinArray(normalizedBindings.value ?? []) }))
+          } else {
+            setTelegramForm((prev) => ({ ...prev, bindingsInput: joinArray(normalizedBindings.value ?? []) }))
+          }
+        }
       }
-      const normalizedBindings = normalizeBindingsForChannel(selected, bindingsParsed.value ?? [])
       if (normalizedBindings.error) {
         toast.error(`多 Agent 路由配置无效：${normalizedBindings.error}`)
         return
@@ -396,35 +678,54 @@ export function ChannelsView() {
       // Build the config for the selected channel
       let config: Record<string, unknown>
       if (selected === "feishu") {
-        const accountsParsed = parseObjectInput(feishuForm.accountsInput ?? "")
-        if (accountsParsed.error) {
-          toast.error(`飞书 accounts 配置无效：${accountsParsed.error}`)
-          return
-        }
-        const advancedAccounts = accountsParsed.value
-        const useAdvancedAccounts = Boolean(advancedAccounts && Object.keys(advancedAccounts).length > 0)
-        const defaultAccount = feishuForm.defaultAccount?.trim() || undefined
-        if (useAdvancedAccounts && defaultAccount && !isRecord(advancedAccounts?.[defaultAccount])) {
-          toast.error(`defaultAccount=${defaultAccount} 在 accounts 中不存在`)
-          return
+        const useAdvancedAccounts = feishuForm.useAdvancedAccounts === true
+        let accounts: Record<string, unknown> | undefined
+        if (useAdvancedAccounts) {
+          const accountsParsed = parseObjectInput(feishuForm.accountsInput ?? "")
+          if (accountsParsed.error) {
+            toast.error(`飞书 accounts 配置无效：${accountsParsed.error}`)
+            return
+          }
+          accounts = accountsParsed.value
+        } else {
+          const accountsParsed = feishuDraftsToAccounts(feishuForm.accountsDraft ?? [])
+          if (accountsParsed.error) {
+            toast.error(`飞书账号配置无效：${accountsParsed.error}`)
+            return
+          }
+          accounts = accountsParsed.value
+          setFeishuForm((prev) => ({ ...prev, accountsInput: joinObject(accounts ?? {}) }))
         }
 
-        const main = feishuForm.accounts?.main ?? {}
-        if (!useAdvancedAccounts && !main.appId?.trim()) {
-          toast.error(t("channels.feishu.appIdRequired"))
+        const accountIds = Object.keys(accounts ?? {})
+        if (accountIds.length === 0) {
+          toast.error("请至少配置一个飞书账号")
           return
         }
-        if (!useAdvancedAccounts && !main.appSecret?.trim()) {
-          toast.error(t("channels.feishu.appSecretRequired"))
+        const defaultAccount = feishuForm.defaultAccount?.trim() || accountIds[0]
+        if (!defaultAccount || !isRecord(accounts?.[defaultAccount])) {
+          toast.error(`defaultAccount=${defaultAccount} 在 accounts 中不存在`)
           return
         }
 
         const allowFrom = splitList(feishuForm.allowFromInput ?? "")
         const groupAllowFrom = splitList(feishuForm.groupAllowFromInput ?? "")
-        const groupsParsed = parseObjectInput(feishuForm.groupsInput ?? "")
-        if (groupsParsed.error) {
-          toast.error(`飞书 groups 配置无效：${groupsParsed.error}`)
-          return
+        let groupsValue: Record<string, unknown> | undefined
+        if (feishuForm.useAdvancedGroups === true) {
+          const groupsParsed = parseObjectInput(feishuForm.groupsInput ?? "")
+          if (groupsParsed.error) {
+            toast.error(`飞书 groups 配置无效：${groupsParsed.error}`)
+            return
+          }
+          groupsValue = groupsParsed.value
+        } else {
+          const groupsParsed = groupRuleDraftsToGroups(feishuForm.groupsDraft ?? [])
+          if (groupsParsed.error) {
+            toast.error(`飞书群组配置无效：${groupsParsed.error}`)
+            return
+          }
+          groupsValue = groupsParsed.value
+          setFeishuForm((prev) => ({ ...prev, groupsInput: joinObject(groupsValue ?? {}) }))
         }
         const webhookPortRaw = feishuForm.webhookPortInput?.trim() ?? ""
         let webhookPort: number | undefined
@@ -462,9 +763,6 @@ export function ChannelsView() {
         }
 
         const existing = (allChannels.feishu ?? {}) as Record<string, unknown>
-        const existingAccounts = isRecord(existing.accounts) ? existing.accounts : {}
-        const accountKey = defaultAccount || "main"
-        const existingMain = isRecord(existingAccounts[accountKey]) ? existingAccounts[accountKey] : {}
         config = {
           ...existing,
           enabled: feishuForm.enabled !== false,
@@ -475,7 +773,7 @@ export function ChannelsView() {
           groupPolicy: feishuForm.groupPolicy ?? "open",
           allowFrom: allowFrom.length > 0 ? allowFrom : undefined,
           groupAllowFrom: groupAllowFrom.length > 0 ? groupAllowFrom : undefined,
-          groups: groupsParsed.value,
+          groups: groupsValue,
           verificationToken: feishuForm.verificationToken?.trim() || undefined,
           encryptKey: feishuForm.encryptKey?.trim() || undefined,
           webhookPath: feishuForm.webhookPath?.trim() || undefined,
@@ -485,45 +783,57 @@ export function ChannelsView() {
           blockStreaming: feishuForm.blockStreaming !== false,
           typingIndicator: feishuForm.typingIndicator !== false,
           resolveSenderNames: feishuForm.resolveSenderNames !== false,
-          accounts: useAdvancedAccounts
-            ? advancedAccounts
-            : {
-                ...existingAccounts,
-                [accountKey]: {
-                  ...existingMain,
-                  appId: main.appId.trim(),
-                  appSecret: main.appSecret.trim(),
-                  ...(main.botName?.trim() ? { botName: main.botName.trim() } : {}),
-                },
-              },
+          accounts,
         }
       } else {
-        const accountsParsed = parseObjectInput(telegramForm.accountsInput ?? "")
-        if (accountsParsed.error) {
-          toast.error(`Telegram accounts 配置无效：${accountsParsed.error}`)
-          return
-        }
-        const advancedAccounts = accountsParsed.value
-        const useAdvancedAccounts = Boolean(advancedAccounts && Object.keys(advancedAccounts).length > 0)
-        const defaultAccount = telegramForm.defaultAccount?.trim() || undefined
-        if (useAdvancedAccounts && defaultAccount && !isRecord(advancedAccounts?.[defaultAccount])) {
-          toast.error(`defaultAccount=${defaultAccount} 在 accounts 中不存在`)
-          return
+        const useAdvancedAccounts = telegramForm.useAdvancedAccounts === true
+        let accounts: Record<string, unknown> | undefined
+        if (useAdvancedAccounts) {
+          const accountsParsed = parseObjectInput(telegramForm.accountsInput ?? "")
+          if (accountsParsed.error) {
+            toast.error(`Telegram accounts 配置无效：${accountsParsed.error}`)
+            return
+          }
+          accounts = accountsParsed.value
+        } else {
+          const accountsParsed = telegramDraftsToAccounts(telegramForm.accountsDraft ?? [])
+          if (accountsParsed.error) {
+            toast.error(`Telegram 账号配置无效：${accountsParsed.error}`)
+            return
+          }
+          accounts = accountsParsed.value
+          setTelegramForm((prev) => ({ ...prev, accountsInput: joinObject(accounts ?? {}) }))
         }
 
-        const token = telegramForm.botToken?.trim() ?? ""
-        const tokenFile = telegramForm.tokenFile?.trim() ?? ""
-        if (!useAdvancedAccounts && !token && !tokenFile) {
-          toast.error("请填写 Bot Token 或 tokenFile")
+        const accountIds = Object.keys(accounts ?? {})
+        if (accountIds.length === 0) {
+          toast.error("请至少配置一个 Telegram 账号")
+          return
+        }
+        const defaultAccount = telegramForm.defaultAccount?.trim() || accountIds[0]
+        if (!defaultAccount || !isRecord(accounts?.[defaultAccount])) {
+          toast.error(`defaultAccount=${defaultAccount} 在 accounts 中不存在`)
           return
         }
 
         const allowFrom = splitList(telegramForm.allowFromInput ?? "")
         const groupAllowFrom = splitList(telegramForm.groupAllowFromInput ?? "")
-        const groupsParsed = parseObjectInput(telegramForm.groupsInput ?? "")
-        if (groupsParsed.error) {
-          toast.error(`Telegram groups 配置无效：${groupsParsed.error}`)
-          return
+        let groupsValue: Record<string, unknown> | undefined
+        if (telegramForm.useAdvancedGroups === true) {
+          const groupsParsed = parseObjectInput(telegramForm.groupsInput ?? "")
+          if (groupsParsed.error) {
+            toast.error(`Telegram groups 配置无效：${groupsParsed.error}`)
+            return
+          }
+          groupsValue = groupsParsed.value
+        } else {
+          const groupsParsed = groupRuleDraftsToGroups(telegramForm.groupsDraft ?? [])
+          if (groupsParsed.error) {
+            toast.error(`Telegram 群组配置无效：${groupsParsed.error}`)
+            return
+          }
+          groupsValue = groupsParsed.value
+          setTelegramForm((prev) => ({ ...prev, groupsInput: joinObject(groupsValue ?? {}) }))
         }
         if (telegramForm.dmPolicy === "allowlist" && allowFrom.length === 0) {
           toast.error("Telegram 私聊白名单为空，请补充 allowFrom")
@@ -542,9 +852,13 @@ export function ChannelsView() {
           return
         }
         const existing = (allChannels.telegram ?? {}) as Record<string, unknown>
-        const existingAccounts = isRecord(existing.accounts) ? existing.accounts : {}
-        const accountKey = defaultAccount || "default"
-        const existingMain = isRecord(existingAccounts[accountKey]) ? existingAccounts[accountKey] : {}
+        const defaultAccountConfig = isRecord(accounts?.[defaultAccount]) ? accounts?.[defaultAccount] : {}
+        const token = isRecord(defaultAccountConfig) && typeof defaultAccountConfig.botToken === "string"
+          ? defaultAccountConfig.botToken.trim()
+          : ""
+        const tokenFile = isRecord(defaultAccountConfig) && typeof defaultAccountConfig.tokenFile === "string"
+          ? defaultAccountConfig.tokenFile.trim()
+          : ""
         config = {
           ...existing,
           enabled: telegramForm.enabled !== false,
@@ -561,17 +875,8 @@ export function ChannelsView() {
           webhookPath: telegramForm.webhookPath?.trim() || undefined,
           allowFrom: allowFrom.length > 0 ? allowFrom : undefined,
           groupAllowFrom: groupAllowFrom.length > 0 ? groupAllowFrom : undefined,
-          groups: groupsParsed.value,
-          accounts: useAdvancedAccounts
-            ? advancedAccounts
-            : {
-                ...existingAccounts,
-                [accountKey]: {
-                  ...existingMain,
-                  ...(token ? { botToken: token } : {}),
-                  ...(tokenFile ? { tokenFile } : {}),
-                },
-              },
+          groups: groupsValue,
+          accounts,
         }
       }
 
@@ -633,7 +938,7 @@ export function ChannelsView() {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-muted/20">
+    <div className="flex-1 flex flex-col overflow-hidden bg-muted/10">
       {/* Page Header */}
       <div
         className="shrink-0 flex items-center gap-3 px-8 py-5 border-b bg-background"
@@ -682,13 +987,13 @@ export function ChannelsView() {
       ) : (
         <div className="flex-1 flex min-h-0">
           {/* Left: Channel list */}
-          <div className="w-[200px] shrink-0 border-r bg-background overflow-y-auto py-2">
+          <div className="w-[220px] shrink-0 border-r bg-background overflow-y-auto py-3">
             {CHANNELS.map((ch) => (
               <button
                 key={ch.id}
                 className={cn(
-                  "w-full flex items-center gap-2.5 px-4 py-3 text-left transition-colors",
-                  selected === ch.id ? "bg-accent" : "hover:bg-accent/50",
+                  "mx-2 w-[calc(100%-1rem)] rounded-lg flex items-center gap-2.5 px-3.5 py-3 text-left transition-colors cursor-pointer",
+                  selected === ch.id ? "bg-accent shadow-sm" : "hover:bg-accent/60",
                 )}
                 onClick={() => setSelected(ch.id)}
               >
@@ -712,23 +1017,25 @@ export function ChannelsView() {
           </div>
 
           {/* Right: Config form */}
-          <div className="flex-1 overflow-y-auto px-8 py-6">
-            <ChannelStatusCard status={statusByChannel[selected] ?? null} />
-            {selected === "feishu" ? (
-              <FeishuConfigForm
-                value={feishuForm}
-                onChange={setFeishuForm}
-                saving={saving}
-                onSave={handleSave}
-              />
-            ) : (
-              <TelegramConfigForm
-                value={telegramForm}
-                onChange={setTelegramForm}
-                saving={saving}
-                onSave={handleSave}
-              />
-            )}
+          <div className="flex-1 overflow-y-auto px-8 py-6 md:px-10">
+            <div className="mx-auto w-full max-w-5xl space-y-4">
+              <ChannelStatusCard status={statusByChannel[selected] ?? null} />
+              {selected === "feishu" ? (
+                <FeishuConfigForm
+                  value={feishuForm}
+                  onChange={setFeishuForm}
+                  saving={saving}
+                  onSave={handleSave}
+                />
+              ) : (
+                <TelegramConfigForm
+                  value={telegramForm}
+                  onChange={setTelegramForm}
+                  saving={saving}
+                  onSave={handleSave}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -750,7 +1057,7 @@ function ChannelStatusCard({ status }: { status: ChannelStatusAccount | null }) 
   })()
 
   return (
-    <div className="mb-4 rounded-lg border bg-background px-4 py-3">
+    <div className="mb-5 rounded-xl border bg-background px-4 py-3 shadow-sm sm:px-5 sm:py-4">
       <div className="flex items-center gap-2">
         <span className={cn("inline-flex h-6 items-center rounded-md border px-2 text-xs font-medium", badge.className)}>
           {badge.label}
@@ -768,24 +1075,181 @@ function ChannelStatusCard({ status }: { status: ChannelStatusAccount | null }) 
 
 function FormSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="space-y-3">
+    <section className="space-y-4 rounded-xl border bg-background px-4 py-4 sm:px-5">
       <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{title}</h3>
+      <div className="space-y-4">{children}</div>
+    </section>
+  )
+}
+
+function FieldGrid({ children }: { children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       {children}
     </div>
   )
 }
 
-function FormField({ label, required, children }: { label: string; required?: boolean; children: ReactNode }) {
+const normalizeTipLabel = (label: string): string => label.replace(/\s*\([^)]*\)\s*/g, "").trim()
+const normalizeTipKey = (label: string): string => normalizeTipLabel(label).replace(/\s+/g, " ").toLowerCase()
+
+const TIP_KEY_BY_LABEL: Record<string, string> = {
+  "dm policy": "dmPolicy",
+  "group policy": "groupPolicy",
+  "platform": "platform",
+  "connection mode": "connectionMode",
+  "app id": "appId",
+  "app secret": "appSecret",
+  "bot name": "botName",
+  "agent id": "agentId",
+  "bot token": "botToken",
+  "webhook url": "webhookUrl",
+  "webhook secret": "webhookSecret",
+  "webhook path": "webhookPath",
+  "webhook host": "webhookHost",
+  "webhook port": "webhookPort",
+  "verification token": "verificationToken",
+  "encrypt key": "encryptKey",
+}
+
+const getLocalizedTip = (
+  t: Translate,
+  key: string,
+): string | null => {
+  const path = `channels.tips.${key}`
+  const localized = t(path)
+  if (!localized || localized === path) return null
+  return localized
+}
+
+const resolveTipText = ({
+  t,
+  label,
+  tip,
+  tipKey,
+}: {
+  t: Translate
+  label: string
+  tip?: string
+  tipKey?: string
+}): string => {
+  if (tip?.trim()) return tip.trim()
+
+  if (tipKey) {
+    const localized = getLocalizedTip(t, tipKey)
+    if (localized) return localized
+  }
+
+  const mappedKey = TIP_KEY_BY_LABEL[normalizeTipKey(label)]
+  if (mappedKey) {
+    const localized = getLocalizedTip(t, mappedKey)
+    if (localized) return localized
+  }
+
+  const generic = getLocalizedTip(t, "generic")
+  if (generic) return generic
+
+  const normalized = normalizeTipLabel(label)
+  return normalized ? `Used to configure ${normalized}.` : "Used to configure this setting."
+}
+function FieldTip({ content }: { content: string }) {
+  const { t } = useI18n()
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        className="inline-flex h-4 w-4 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        aria-label={t("channels.tips.ariaLabel")}
+      >
+        <CircleHelp className="h-3.5 w-3.5" />
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-[280px] text-xs leading-relaxed">
+        {content}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+function FormField({
+  label,
+  required,
+  headerRight,
+  tip,
+  tipKey,
+  children,
+}: {
+  label: string
+  required?: boolean
+  headerRight?: ReactNode
+  tip?: string
+  tipKey?: string
+  children: ReactNode
+}) {
+  const { t } = useI18n()
+  const tipText = resolveTipText({ t, label, tip, tipKey })
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-muted-foreground">
-        {label}{required && <span className="text-destructive ml-0.5">*</span>}
-      </label>
+      <div className="flex min-h-[18px] items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <label className="truncate text-xs font-medium leading-none text-muted-foreground">
+            {label}{required && <span className="ml-0.5 text-destructive">*</span>}
+          </label>
+          <FieldTip content={tipText} />
+        </div>
+        {headerRight ? <div className="shrink-0">{headerRight}</div> : null}
+      </div>
       {children}
     </div>
   )
 }
-
+function FormSwitchField({
+  label,
+  tip,
+  tipKey,
+  checked,
+  onCheckedChange,
+}: {
+  label: string
+  tip?: string
+  tipKey?: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  const { t } = useI18n()
+  const tipText = resolveTipText({ t, label, tip, tipKey })
+  return (
+    <div className="flex h-8 items-center justify-between rounded-md border bg-muted/20 px-3">
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-foreground">{label}</span>
+        <FieldTip content={tipText} />
+      </div>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  )
+}
+function InlineSwitchChip({
+  label,
+  tip,
+  tipKey,
+  checked,
+  onCheckedChange,
+}: {
+  label: string
+  tip?: string
+  tipKey?: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  const { t } = useI18n()
+  const tipText = resolveTipText({ t, label, tip, tipKey })
+  return (
+    <div className="flex h-8 min-w-[116px] items-center justify-between gap-2 rounded-md border bg-background px-2.5">
+      <div className="flex items-center gap-1">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <FieldTip content={tipText} />
+      </div>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  )
+}
 function PasswordInput({
   value,
   onChange,
@@ -859,6 +1323,391 @@ function ListInput({
   )
 }
 
+function EditorModeToggle({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  const { t } = useI18n()
+  return (
+    <div className="inline-flex h-8 items-center rounded-md border bg-muted/20 px-2 gap-2">
+      <Code2 className="h-3.5 w-3.5 text-muted-foreground" />
+      <span className="text-[11px] text-muted-foreground">{t("channels.advancedJsonMode")}</span>
+      <FieldTip content={resolveTipText({ t, label: t("channels.advancedJsonMode"), tipKey: "advancedJsonMode" })} />
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  )
+}
+
+function FeishuAccountsEditor({
+  value,
+  onChange,
+}: {
+  value: FeishuAccountDraft[]
+  onChange: (next: FeishuAccountDraft[]) => void
+}) {
+  const update = (idx: number, patch: Partial<FeishuAccountDraft>) => {
+    onChange(value.map((item, i) => (i === idx ? { ...item, ...patch } : item)))
+  }
+
+  const remove = (idx: number) => {
+    onChange(value.filter((_, i) => i !== idx))
+  }
+
+  const add = () => {
+    onChange([
+      ...value,
+      {
+        id: createNextAccountId("account", value.map((item) => item.id)),
+        enabled: true,
+        appId: "",
+        appSecret: "",
+        botName: "",
+        domain: "",
+      },
+    ])
+  }
+
+  return (
+    <div className="space-y-2">
+      {value.map((account, idx) => (
+        <div key={`${account.id || "empty"}-${idx}`} className="rounded-md border bg-muted/20 p-3 space-y-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_116px_32px] sm:items-end">
+            <FormField label="账号 ID" tipKey="accountId">
+              <Input
+                value={account.id}
+                onChange={(event) => update(idx, { id: event.target.value })}
+                placeholder="main"
+                className="h-8 text-sm font-mono"
+              />
+            </FormField>
+            <InlineSwitchChip
+              label="启用"
+              tipKey="enabledAccount"
+              checked={account.enabled}
+              onCheckedChange={(checked) => update(idx, { enabled: checked })}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 self-end"
+              onClick={() => remove(idx)}
+              aria-label="删除飞书账号"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <FormField label="App ID" tipKey="appId">
+              <Input
+                value={account.appId}
+                onChange={(event) => update(idx, { appId: event.target.value })}
+                placeholder="cli_xxx"
+                className="h-8 text-sm font-mono"
+              />
+            </FormField>
+            <FormField label="App Secret" tipKey="appSecret">
+              <PasswordInput
+                value={account.appSecret}
+                onChange={(next) => update(idx, { appSecret: next })}
+                placeholder="请填写 App Secret"
+              />
+            </FormField>
+            <FormField label="Bot Name" tipKey="botName">
+              <Input
+                value={account.botName}
+                onChange={(event) => update(idx, { botName: event.target.value })}
+                placeholder="可选"
+                className="h-8 text-sm"
+              />
+            </FormField>
+            <FormField label="账号 Domain" tipKey="accountDomain">
+              <Select
+                value={account.domain || "__inherit__"}
+                onValueChange={(next) => update(idx, { domain: next === "__inherit__" ? "" : next })}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__inherit__">跟随渠道</SelectItem>
+                  <SelectItem value="feishu">feishu</SelectItem>
+                  <SelectItem value="lark">lark</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={add}>
+        <Plus className="h-3.5 w-3.5" />
+        添加飞书账号
+      </Button>
+    </div>
+  )
+}
+
+function TelegramAccountsEditor({
+  value,
+  onChange,
+}: {
+  value: TelegramAccountDraft[]
+  onChange: (next: TelegramAccountDraft[]) => void
+}) {
+  const update = (idx: number, patch: Partial<TelegramAccountDraft>) => {
+    onChange(value.map((item, i) => (i === idx ? { ...item, ...patch } : item)))
+  }
+
+  const remove = (idx: number) => {
+    onChange(value.filter((_, i) => i !== idx))
+  }
+
+  const add = () => {
+    onChange([
+      ...value,
+      {
+        id: createNextAccountId("account", value.map((item) => item.id)),
+        enabled: true,
+        name: "",
+        botToken: "",
+        tokenFile: "",
+      },
+    ])
+  }
+
+  return (
+    <div className="space-y-2">
+      {value.map((account, idx) => (
+        <div key={`${account.id || "empty"}-${idx}`} className="rounded-md border bg-muted/20 p-3 space-y-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_116px_32px] sm:items-end">
+            <FormField label="账号 ID" tipKey="accountId">
+              <Input
+                value={account.id}
+                onChange={(event) => update(idx, { id: event.target.value })}
+                placeholder="default"
+                className="h-8 text-sm font-mono"
+              />
+            </FormField>
+            <InlineSwitchChip
+              label="启用"
+              tipKey="enabledAccount"
+              checked={account.enabled}
+              onCheckedChange={(checked) => update(idx, { enabled: checked })}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 self-end"
+              onClick={() => remove(idx)}
+              aria-label="删除 Telegram 账号"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <FormField label="账号名称" tipKey="accountName">
+              <Input
+                value={account.name}
+                onChange={(event) => update(idx, { name: event.target.value })}
+                placeholder="可选"
+                className="h-8 text-sm"
+              />
+            </FormField>
+            <FormField label="Token 文件路径" tipKey="tokenFile">
+              <Input
+                value={account.tokenFile}
+                onChange={(event) => update(idx, { tokenFile: event.target.value })}
+                placeholder="/path/to/telegram.token"
+                className="h-8 text-sm font-mono"
+              />
+            </FormField>
+            <FormField label="Bot Token" tipKey="botToken">
+              <PasswordInput
+                value={account.botToken}
+                onChange={(next) => update(idx, { botToken: next })}
+                placeholder="123456789:ABC..."
+              />
+            </FormField>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={add}>
+        <Plus className="h-3.5 w-3.5" />
+        添加 Telegram 账号
+      </Button>
+    </div>
+  )
+}
+
+function GroupsEditor({
+  value,
+  onChange,
+}: {
+  value: GroupRuleDraft[]
+  onChange: (next: GroupRuleDraft[]) => void
+}) {
+  const update = (idx: number, patch: Partial<GroupRuleDraft>) => {
+    onChange(value.map((item, i) => (i === idx ? { ...item, ...patch } : item)))
+  }
+
+  const remove = (idx: number) => {
+    onChange(value.filter((_, i) => i !== idx))
+  }
+
+  const add = () => {
+    onChange([
+      ...value,
+      { scopeId: value.length === 0 ? "*" : "", requireMention: true },
+    ])
+  }
+
+  return (
+    <div className="space-y-2">
+      {value.map((item, idx) => (
+        <div key={`${item.scopeId || "scope"}-${idx}`} className="rounded-md border bg-muted/20 p-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_116px_32px] sm:items-end">
+            <FormField label="群组范围 (scopeId)" tipKey="groupScopeId">
+              <Input
+                value={item.scopeId}
+                onChange={(event) => update(idx, { scopeId: event.target.value })}
+                placeholder="* 或具体群ID（如 oc_xxx / -100123456）"
+                className="h-8 text-sm font-mono"
+              />
+            </FormField>
+            <InlineSwitchChip
+              label="需提及"
+              tipKey="requireMention"
+              checked={item.requireMention}
+              onCheckedChange={(checked) => update(idx, { requireMention: checked })}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 w-8 p-0 self-end"
+              onClick={() => remove(idx)}
+              aria-label="删除群组规则"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={add}>
+        <Plus className="h-3.5 w-3.5" />
+        添加群组规则
+      </Button>
+    </div>
+  )
+}
+
+function BindingsEditor({
+  channelId,
+  value,
+  onChange,
+}: {
+  channelId: ChannelId
+  value: BindingDraft[]
+  onChange: (next: BindingDraft[]) => void
+}) {
+  const update = (idx: number, patch: Partial<BindingDraft>) => {
+    onChange(value.map((item, i) => (i === idx ? { ...item, ...patch } : item)))
+  }
+
+  const remove = (idx: number) => {
+    onChange(value.filter((_, i) => i !== idx))
+  }
+
+  const move = (idx: number, direction: -1 | 1) => {
+    const next = [...value]
+    const target = idx + direction
+    if (target < 0 || target >= next.length) return
+    const temp = next[idx]
+    next[idx] = next[target]
+    next[target] = temp
+    onChange(next)
+  }
+
+  const add = () => {
+    onChange([...value, { agentId: "", accountId: "", peerKind: "any", peerId: "" }])
+  }
+
+  return (
+    <div className="space-y-2">
+      {value.map((binding, idx) => (
+        <div key={`binding-${idx}`} className="rounded-md border bg-muted/20 p-3 space-y-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <FormField label="Agent ID" tipKey="agentId">
+              <Input
+                value={binding.agentId}
+                onChange={(event) => update(idx, { agentId: event.target.value })}
+                placeholder="main"
+                className="h-8 text-sm font-mono"
+              />
+            </FormField>
+            <FormField label="账号 ID (match.accountId)" tipKey="matchAccountId">
+              <Input
+                value={binding.accountId}
+                onChange={(event) => update(idx, { accountId: event.target.value })}
+                placeholder="留空表示匹配任意账号"
+                className="h-8 text-sm font-mono"
+              />
+            </FormField>
+            <FormField label="会话类型 (match.peer.kind)" tipKey="peerKind">
+              <Select
+                value={binding.peerKind}
+                onValueChange={(next) => update(idx, { peerKind: next as BindingPeerKind })}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">任意</SelectItem>
+                  <SelectItem value="dm">私聊 (dm)</SelectItem>
+                  <SelectItem value="group">群聊 (group)</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="会话 ID (match.peer.id)" tipKey="peerId">
+              <Input
+                value={binding.peerId}
+                onChange={(event) => update(idx, { peerId: event.target.value })}
+                placeholder={binding.peerKind === "any" ? "peer.kind=any 时可留空" : "必填"}
+                className="h-8 text-sm font-mono"
+                disabled={binding.peerKind === "any"}
+              />
+            </FormField>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-[11px] text-muted-foreground">
+              channel 固定为 {channelId}
+            </span>
+            <div className="flex items-center gap-1">
+              <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => move(idx, -1)} aria-label="上移规则">
+                <ArrowUp className="h-3.5 w-3.5" />
+              </Button>
+              <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => move(idx, 1)} aria-label="下移规则">
+                <ArrowDown className="h-3.5 w-3.5" />
+              </Button>
+              <Button type="button" variant="outline" size="sm" className="h-7 px-2" onClick={() => remove(idx)} aria-label="删除路由规则">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={add}>
+        <Plus className="h-3.5 w-3.5" />
+        添加路由规则
+      </Button>
+    </div>
+  )
+}
+
 // ── Feishu Config Form ───────────────────────────────────────────────────────
 
 function FeishuConfigForm({
@@ -873,103 +1722,112 @@ function FeishuConfigForm({
   onSave: () => void
 }) {
   const { t } = useI18n()
-  const main = value.accounts?.main ?? {}
+  const accounts = value.accountsDraft ?? []
+  const groups = value.groupsDraft ?? []
+  const hasConfigured = accounts.some((item) => item.appId.trim())
 
-  const updateMain = (patch: Partial<typeof main>) => {
+  const updateAccounts = (nextAccounts: FeishuAccountDraft[]) => {
+    const validIds = nextAccounts.map((item) => item.id.trim()).filter(Boolean)
+    let nextDefault = value.defaultAccount?.trim() ?? ""
+    if (!nextDefault || !validIds.includes(nextDefault)) {
+      nextDefault = validIds[0] ?? ""
+    }
     onChange({
       ...value,
-      accounts: {
-        ...value.accounts,
-        main: { ...main, ...patch },
-      },
+      accountsDraft: nextAccounts,
+      defaultAccount: nextDefault,
     })
   }
 
+  const updateGroups = (nextGroups: GroupRuleDraft[]) => {
+    onChange({ ...value, groupsDraft: nextGroups })
+  }
+
   return (
-    <div className="max-w-lg space-y-6">
-      {/* Header with switch */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-xl"><FeishuIcon className="h-6 w-6" /></span>
-          <h2 className="text-base font-semibold">{t("channels.feishu.name")}</h2>
-          {main.appId && (
-            <Badge variant={value.enabled !== false ? "default" : "secondary"} className="text-[10px] px-1.5 h-4">
-              {value.enabled !== false ? t("channels.enabled") : t("channels.disabled")}
-            </Badge>
-          )}
+    <div className="w-full space-y-5 pb-8">
+      <div className="rounded-xl border bg-background px-4 py-3 sm:px-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl"><FeishuIcon className="h-6 w-6" /></span>
+            <h2 className="text-base font-semibold">{t("channels.feishu.name")}</h2>
+            {hasConfigured && (
+              <Badge variant={value.enabled !== false ? "default" : "secondary"} className="text-[10px] px-1.5 h-4">
+                {value.enabled !== false ? t("channels.enabled") : t("channels.disabled")}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <FieldTip content={resolveTipText({ t, label: t("channels.enabled"), tipKey: "channelEnabled" })} />
+            <Switch
+              checked={value.enabled !== false}
+              onCheckedChange={(checked) => onChange({ ...value, enabled: checked })}
+            />
+          </div>
         </div>
-        <Switch
-          checked={value.enabled !== false}
-          onCheckedChange={(checked) => onChange({ ...value, enabled: checked })}
-        />
       </div>
 
-      {/* Required fields */}
       <FormSection title={t("channels.requiredFields")}>
-        <FormField label="App ID" required>
-          <Input
-            value={main.appId ?? ""}
-            onChange={(e) => updateMain({ appId: e.target.value })}
-            placeholder="cli_a1b2c3d4e5f6"
-            className="h-8 text-sm font-mono"
-          />
-        </FormField>
-
-        <FormField label="App Secret" required>
-          <PasswordInput
-            value={main.appSecret ?? ""}
-            onChange={(v) => updateMain({ appSecret: v })}
-            placeholder={t("channels.feishu.appSecretPlaceholder")}
-          />
+        <FormField
+          label="多账号配置"
+          tipKey="multiAccount"
+          required
+          headerRight={(
+            <EditorModeToggle
+              checked={value.useAdvancedAccounts === true}
+              onCheckedChange={(checked) => onChange({ ...value, useAdvancedAccounts: checked })}
+            />
+          )}
+        >
+          {value.useAdvancedAccounts === true ? (
+            <ListInput
+              value={value.accountsInput ?? ""}
+              onChange={(next) => onChange({ ...value, accountsInput: next })}
+              placeholder={'例如：{\n  "main": { "appId": "cli_xxx", "appSecret": "xxx" },\n  "backup": { "appId": "cli_yyy", "appSecret": "yyy", "enabled": false }\n}'}
+            />
+          ) : (
+            <FeishuAccountsEditor value={accounts} onChange={updateAccounts} />
+          )}
         </FormField>
       </FormSection>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="px-1 text-[11px] text-muted-foreground">
         {t("channels.feishu.setupHint")}
       </p>
 
-      {/* Optional fields */}
       <FormSection title={t("channels.optionalFields")}>
-        <FormField label={t("channels.feishu.botName")}>
-          <Input
-            value={main.botName ?? ""}
-            onChange={(e) => updateMain({ botName: e.target.value })}
-            placeholder={t("channels.feishu.botNamePlaceholder")}
-            className="h-8 text-sm"
-          />
-        </FormField>
+        <FieldGrid>
+          <FormField label={t("channels.feishu.domain")} tipKey="platform">
+            <Select
+              value={value.domain ?? "feishu"}
+              onValueChange={(v) => onChange({ ...value, domain: v })}
+            >
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="feishu">{t("channels.feishu.domainFeishu")}</SelectItem>
+                <SelectItem value="lark">{t("channels.feishu.domainLark")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
 
-        <FormField label={t("channels.feishu.domain")}>
-          <Select
-            value={value.domain ?? "feishu"}
-            onValueChange={(v) => onChange({ ...value, domain: v })}
-          >
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="feishu">{t("channels.feishu.domainFeishu")}</SelectItem>
-              <SelectItem value="lark">{t("channels.feishu.domainLark")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </FormField>
+          <FormField label={t("channels.feishu.connectionMode")} tipKey="connectionMode">
+            <Select
+              value={value.connectionMode ?? "websocket"}
+              onValueChange={(v) => onChange({ ...value, connectionMode: v })}
+            >
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="websocket">WebSocket</SelectItem>
+                <SelectItem value="webhook">Webhook</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+        </FieldGrid>
 
-        <FormField label={t("channels.feishu.connectionMode")}>
-          <Select
-            value={value.connectionMode ?? "websocket"}
-            onValueChange={(v) => onChange({ ...value, connectionMode: v })}
-          >
-            <SelectTrigger className="h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="websocket">WebSocket</SelectItem>
-              <SelectItem value="webhook">Webhook</SelectItem>
-            </SelectContent>
-          </Select>
-        </FormField>
-
-        <FormField label="默认账户 (defaultAccount)">
+        <FormField label="默认账户 (defaultAccount)" tipKey="defaultAccount">
           <Input
             value={value.defaultAccount ?? ""}
             onChange={(event) => onChange({ ...value, defaultAccount: event.target.value })}
@@ -978,93 +1836,120 @@ function FeishuConfigForm({
           />
         </FormField>
 
-        <FormField label="多账号配置 (accounts JSON)">
-          <ListInput
-            value={value.accountsInput ?? ""}
-            onChange={(next) => onChange({ ...value, accountsInput: next })}
-            placeholder={'例如：{\n  "main": { "appId": "cli_xxx", "appSecret": "xxx" },\n  "backup": { "appId": "cli_yyy", "appSecret": "yyy", "enabled": false }\n}'}
-          />
+        <FormField
+          label="多 Agent 路由"
+          tipKey="bindings"
+          headerRight={(
+            <EditorModeToggle
+              checked={value.useAdvancedBindings === true}
+              onCheckedChange={(checked) => onChange({ ...value, useAdvancedBindings: checked })}
+            />
+          )}
+        >
+          {value.useAdvancedBindings === true ? (
+            <ListInput
+              value={value.bindingsInput ?? ""}
+              onChange={(next) => onChange({ ...value, bindingsInput: next })}
+              placeholder={'例如：[\n  { "agentId": "main", "match": { "channel": "feishu", "accountId": "main" } },\n  { "agentId": "ops", "match": { "channel": "feishu", "peer": { "kind": "group", "id": "oc_xxx" } } }\n]'}
+            />
+          ) : (
+            <BindingsEditor
+              channelId="feishu"
+              value={value.bindingsDraft ?? []}
+              onChange={(next) => onChange({ ...value, bindingsDraft: next })}
+            />
+          )}
         </FormField>
 
-        <FormField label="多 Agent 路由 (bindings JSON)">
-          <ListInput
-            value={value.bindingsInput ?? ""}
-            onChange={(next) => onChange({ ...value, bindingsInput: next })}
-            placeholder={'例如：[\n  { "agentId": "main", "match": { "channel": "feishu", "accountId": "main" } },\n  { "agentId": "ops", "match": { "channel": "feishu", "peer": { "kind": "group", "id": "oc_xxx" } } }\n]'}
-          />
+        <FieldGrid>
+          <FormField label={t("channels.dmPolicy")} tipKey="dmPolicy">
+            <PolicySelect
+              value={value.dmPolicy ?? "pairing"}
+              onChange={(v) => onChange({ ...value, dmPolicy: v })}
+              t={t}
+            />
+          </FormField>
+
+          <FormField label={t("channels.groupPolicy")} tipKey="groupPolicy">
+            <PolicySelect
+              value={value.groupPolicy ?? "open"}
+              onChange={(v) => onChange({ ...value, groupPolicy: v })}
+              t={t}
+            />
+          </FormField>
+        </FieldGrid>
+
+        <FieldGrid>
+          <FormField label="私聊白名单 (allowFrom)" tipKey="allowFrom">
+            <ListInput
+              value={value.allowFromInput ?? ""}
+              onChange={(next) => onChange({ ...value, allowFromInput: next })}
+              placeholder="每行一个 open_id；开放模式至少包含 *"
+            />
+          </FormField>
+
+          <FormField label="群聊白名单 (groupAllowFrom)" tipKey="groupAllowFrom">
+            <ListInput
+              value={value.groupAllowFromInput ?? ""}
+              onChange={(next) => onChange({ ...value, groupAllowFromInput: next })}
+              placeholder="每行一个群 chat_id（如 oc_xxx）"
+            />
+          </FormField>
+        </FieldGrid>
+
+        <FormField
+          label="群组规则 (groups)"
+          tipKey="groups"
+          headerRight={(
+            <EditorModeToggle
+              checked={value.useAdvancedGroups === true}
+              onCheckedChange={(checked) => onChange({ ...value, useAdvancedGroups: checked })}
+            />
+          )}
+        >
+          {value.useAdvancedGroups === true ? (
+            <ListInput
+              value={value.groupsInput ?? ""}
+              onChange={(next) => onChange({ ...value, groupsInput: next })}
+              placeholder={'例如：{\n  "*": { "requireMention": true }\n}'}
+            />
+          ) : (
+            <GroupsEditor value={groups} onChange={updateGroups} />
+          )}
         </FormField>
 
-        <FormField label={t("channels.dmPolicy")}>
-          <PolicySelect
-            value={value.dmPolicy ?? "pairing"}
-            onChange={(v) => onChange({ ...value, dmPolicy: v })}
-            t={t}
-          />
-        </FormField>
-
-        <FormField label={t("channels.groupPolicy")}>
-          <PolicySelect
-            value={value.groupPolicy ?? "open"}
-            onChange={(v) => onChange({ ...value, groupPolicy: v })}
-            t={t}
-          />
-        </FormField>
-
-        <FormField label="私聊白名单 (allowFrom)">
-          <ListInput
-            value={value.allowFromInput ?? ""}
-            onChange={(next) => onChange({ ...value, allowFromInput: next })}
-            placeholder="每行一个 open_id；开放模式至少包含 *"
-          />
-        </FormField>
-
-        <FormField label="群聊白名单 (groupAllowFrom)">
-          <ListInput
-            value={value.groupAllowFromInput ?? ""}
-            onChange={(next) => onChange({ ...value, groupAllowFromInput: next })}
-            placeholder="每行一个群 chat_id（如 oc_xxx）"
-          />
-        </FormField>
-
-        <FormField label="群组高级配置 (groups JSON)">
-          <ListInput
-            value={value.groupsInput ?? ""}
-            onChange={(next) => onChange({ ...value, groupsInput: next })}
-            placeholder={'例如：{\n  "*": { "requireMention": true }\n}'}
-          />
-        </FormField>
-
-        <FormField label="流式输出">
-          <Switch
+        <FieldGrid>
+          <FormSwitchField
+            label="流式输出"
+            tipKey="streaming"
             checked={value.streaming !== false}
             onCheckedChange={(checked) => onChange({ ...value, streaming: checked })}
           />
-        </FormField>
-
-        <FormField label="分块流式输出">
-          <Switch
+          <FormSwitchField
+            label="分块流式输出"
+            tipKey="blockStreaming"
             checked={value.blockStreaming !== false}
             onCheckedChange={(checked) => onChange({ ...value, blockStreaming: checked })}
           />
-        </FormField>
-
-        <FormField label="输入中提示 (typingIndicator)">
-          <Switch
+          <FormSwitchField
+            label="输入中提示 (typingIndicator)"
+            tipKey="typingIndicator"
             checked={value.typingIndicator !== false}
             onCheckedChange={(checked) => onChange({ ...value, typingIndicator: checked })}
           />
-        </FormField>
-
-        <FormField label="发送者姓名解析 (resolveSenderNames)">
-          <Switch
+          <FormSwitchField
+            label="发送者姓名解析 (resolveSenderNames)"
+            tipKey="resolveSenderNames"
             checked={value.resolveSenderNames !== false}
             onCheckedChange={(checked) => onChange({ ...value, resolveSenderNames: checked })}
           />
-        </FormField>
+        </FieldGrid>
+      </FormSection>
 
-        {(value.connectionMode ?? "websocket") === "webhook" && (
-          <>
-            <FormField label="Verification Token">
+      {(value.connectionMode ?? "websocket") === "webhook" && (
+        <FormSection title="Webhook">
+          <FieldGrid>
+            <FormField label="Verification Token" tipKey="verificationToken">
               <Input
                 value={value.verificationToken ?? ""}
                 onChange={(e) => onChange({ ...value, verificationToken: e.target.value })}
@@ -1072,14 +1957,14 @@ function FeishuConfigForm({
                 className="h-8 text-sm font-mono"
               />
             </FormField>
-            <FormField label="Encrypt Key">
+            <FormField label="Encrypt Key" tipKey="encryptKey" required>
               <PasswordInput
                 value={value.encryptKey ?? ""}
                 onChange={(next) => onChange({ ...value, encryptKey: next })}
                 placeholder="Webhook 加密 Key"
               />
             </FormField>
-            <FormField label="Webhook Path">
+            <FormField label="Webhook Path" tipKey="webhookPath">
               <Input
                 value={value.webhookPath ?? ""}
                 onChange={(event) => onChange({ ...value, webhookPath: event.target.value })}
@@ -1087,7 +1972,7 @@ function FeishuConfigForm({
                 className="h-8 text-sm font-mono"
               />
             </FormField>
-            <FormField label="Webhook Host">
+            <FormField label="Webhook Host" tipKey="webhookHost" required>
               <Input
                 value={value.webhookHost ?? ""}
                 onChange={(event) => onChange({ ...value, webhookHost: event.target.value })}
@@ -1095,7 +1980,7 @@ function FeishuConfigForm({
                 className="h-8 text-sm font-mono"
               />
             </FormField>
-            <FormField label="Webhook Port">
+            <FormField label="Webhook Port" tipKey="webhookPort" required>
               <Input
                 value={value.webhookPortInput ?? ""}
                 onChange={(event) => onChange({ ...value, webhookPortInput: event.target.value })}
@@ -1103,12 +1988,11 @@ function FeishuConfigForm({
                 className="h-8 text-sm font-mono"
               />
             </FormField>
-          </>
-        )}
-      </FormSection>
+          </FieldGrid>
+        </FormSection>
+      )}
 
-      {/* Save button */}
-      <div className="flex items-center gap-2 pt-2">
+      <div className="mt-1 flex items-center gap-2 rounded-lg border bg-background px-3 py-2">
         <Button size="sm" onClick={onSave} disabled={saving} className="gap-1.5 text-xs h-8">
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
           {t("channels.save")}
@@ -1133,68 +2017,98 @@ function TelegramConfigForm({
   onSave: () => void
 }) {
   const { t } = useI18n()
+  const accounts = value.accountsDraft ?? []
+  const groups = value.groupsDraft ?? []
+  const hasConfigured = accounts.some((item) => item.botToken.trim() || item.tokenFile.trim())
+
+  const updateAccounts = (nextAccounts: TelegramAccountDraft[]) => {
+    const validIds = nextAccounts.map((item) => item.id.trim()).filter(Boolean)
+    let nextDefault = value.defaultAccount?.trim() ?? ""
+    if (!nextDefault || !validIds.includes(nextDefault)) {
+      nextDefault = validIds[0] ?? ""
+    }
+    onChange({
+      ...value,
+      accountsDraft: nextAccounts,
+      defaultAccount: nextDefault,
+    })
+  }
+
+  const updateGroups = (nextGroups: GroupRuleDraft[]) => {
+    onChange({ ...value, groupsDraft: nextGroups })
+  }
 
   return (
-    <div className="max-w-lg space-y-6">
-      {/* Header with switch */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-xl"><Send className="h-6 w-6" /></span>
-          <h2 className="text-base font-semibold">{t("channels.telegram.name")}</h2>
-          {value.botToken && (
-            <Badge variant={value.enabled !== false ? "default" : "secondary"} className="text-[10px] px-1.5 h-4">
-              {value.enabled !== false ? t("channels.enabled") : t("channels.disabled")}
-            </Badge>
-          )}
+    <div className="w-full space-y-5 pb-8">
+      <div className="rounded-xl border bg-background px-4 py-3 sm:px-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl"><Send className="h-6 w-6" /></span>
+            <h2 className="text-base font-semibold">{t("channels.telegram.name")}</h2>
+            {hasConfigured && (
+              <Badge variant={value.enabled !== false ? "default" : "secondary"} className="text-[10px] px-1.5 h-4">
+                {value.enabled !== false ? t("channels.enabled") : t("channels.disabled")}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <FieldTip content={resolveTipText({ t, label: t("channels.enabled"), tipKey: "channelEnabled" })} />
+            <Switch
+              checked={value.enabled !== false}
+              onCheckedChange={(checked) => onChange({ ...value, enabled: checked })}
+            />
+          </div>
         </div>
-        <Switch
-          checked={value.enabled !== false}
-          onCheckedChange={(checked) => onChange({ ...value, enabled: checked })}
-        />
       </div>
 
-      {/* Required fields */}
       <FormSection title={t("channels.requiredFields")}>
-        <FormField label="Bot Token">
-          <PasswordInput
-            value={value.botToken ?? ""}
-            onChange={(v) => onChange({ ...value, botToken: v })}
-            placeholder="123456789:ABCDefGHiJKlmnoPQRstuvwXYZ"
-          />
-        </FormField>
-        <FormField label="Token 文件路径 (tokenFile)">
-          <Input
-            value={value.tokenFile ?? ""}
-            onChange={(event) => onChange({ ...value, tokenFile: event.target.value })}
-            placeholder="/path/to/telegram.token"
-            className="h-8 text-sm font-mono"
-          />
+        <FormField
+          label="多账号配置"
+          tipKey="multiAccount"
+          required
+          headerRight={(
+            <EditorModeToggle
+              checked={value.useAdvancedAccounts === true}
+              onCheckedChange={(checked) => onChange({ ...value, useAdvancedAccounts: checked })}
+            />
+          )}
+        >
+          {value.useAdvancedAccounts === true ? (
+            <ListInput
+              value={value.accountsInput ?? ""}
+              onChange={(next) => onChange({ ...value, accountsInput: next })}
+              placeholder={'例如：{\n  "default": { "name": "Primary bot", "botToken": "123:abc" },\n  "alerts": { "name": "Alerts bot", "botToken": "456:def" }\n}'}
+            />
+          ) : (
+            <TelegramAccountsEditor value={accounts} onChange={updateAccounts} />
+          )}
         </FormField>
       </FormSection>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="px-1 text-[11px] text-muted-foreground">
         {t("channels.telegram.setupHint")}
       </p>
 
-      {/* Optional fields */}
       <FormSection title={t("channels.optionalFields")}>
-        <FormField label={t("channels.dmPolicy")}>
-          <PolicySelect
-            value={value.dmPolicy ?? "pairing"}
-            onChange={(v) => onChange({ ...value, dmPolicy: v })}
-            t={t}
-          />
-        </FormField>
+        <FieldGrid>
+          <FormField label={t("channels.dmPolicy")} tipKey="dmPolicy">
+            <PolicySelect
+              value={value.dmPolicy ?? "pairing"}
+              onChange={(v) => onChange({ ...value, dmPolicy: v })}
+              t={t}
+            />
+          </FormField>
 
-        <FormField label={t("channels.groupPolicy")}>
-          <PolicySelect
-            value={value.groupPolicy ?? "allowlist"}
-            onChange={(v) => onChange({ ...value, groupPolicy: v })}
-            t={t}
-          />
-        </FormField>
+          <FormField label={t("channels.groupPolicy")} tipKey="groupPolicy">
+            <PolicySelect
+              value={value.groupPolicy ?? "allowlist"}
+              onChange={(v) => onChange({ ...value, groupPolicy: v })}
+              t={t}
+            />
+          </FormField>
+        </FieldGrid>
 
-        <FormField label="默认账户 (defaultAccount)">
+        <FormField label="默认账户 (defaultAccount)" tipKey="defaultAccount">
           <Input
             value={value.defaultAccount ?? ""}
             onChange={(event) => onChange({ ...value, defaultAccount: event.target.value })}
@@ -1203,47 +2117,71 @@ function TelegramConfigForm({
           />
         </FormField>
 
-        <FormField label="多账号配置 (accounts JSON)">
-          <ListInput
-            value={value.accountsInput ?? ""}
-            onChange={(next) => onChange({ ...value, accountsInput: next })}
-            placeholder={'例如：{\n  "default": { "name": "Primary bot", "botToken": "123:abc" },\n  "alerts": { "name": "Alerts bot", "botToken": "456:def" }\n}'}
-          />
+        <FormField
+          label="多 Agent 路由"
+          tipKey="bindings"
+          headerRight={(
+            <EditorModeToggle
+              checked={value.useAdvancedBindings === true}
+              onCheckedChange={(checked) => onChange({ ...value, useAdvancedBindings: checked })}
+            />
+          )}
+        >
+          {value.useAdvancedBindings === true ? (
+            <ListInput
+              value={value.bindingsInput ?? ""}
+              onChange={(next) => onChange({ ...value, bindingsInput: next })}
+              placeholder={'例如：[\n  { "agentId": "main", "match": { "channel": "telegram", "accountId": "default" } },\n  { "agentId": "alerts", "match": { "channel": "telegram", "accountId": "alerts" } }\n]'}
+            />
+          ) : (
+            <BindingsEditor
+              channelId="telegram"
+              value={value.bindingsDraft ?? []}
+              onChange={(next) => onChange({ ...value, bindingsDraft: next })}
+            />
+          )}
         </FormField>
 
-        <FormField label="多 Agent 路由 (bindings JSON)">
-          <ListInput
-            value={value.bindingsInput ?? ""}
-            onChange={(next) => onChange({ ...value, bindingsInput: next })}
-            placeholder={'例如：[\n  { "agentId": "main", "match": { "channel": "telegram", "accountId": "default" } },\n  { "agentId": "alerts", "match": { "channel": "telegram", "accountId": "alerts" } }\n]'}
-          />
+        <FieldGrid>
+          <FormField label="私聊白名单 (allowFrom)" tipKey="allowFrom">
+            <ListInput
+              value={value.allowFromInput ?? ""}
+              onChange={(next) => onChange({ ...value, allowFromInput: next })}
+              placeholder="每行一个 Telegram 用户 ID；开放模式至少包含 *"
+            />
+          </FormField>
+
+          <FormField label="群聊发言白名单 (groupAllowFrom)" tipKey="groupAllowFrom">
+            <ListInput
+              value={value.groupAllowFromInput ?? ""}
+              onChange={(next) => onChange({ ...value, groupAllowFromInput: next })}
+              placeholder="每行一个 Telegram 用户 ID"
+            />
+          </FormField>
+        </FieldGrid>
+
+        <FormField
+          label="群组规则 (groups)"
+          tipKey="groups"
+          headerRight={(
+            <EditorModeToggle
+              checked={value.useAdvancedGroups === true}
+              onCheckedChange={(checked) => onChange({ ...value, useAdvancedGroups: checked })}
+            />
+          )}
+        >
+          {value.useAdvancedGroups === true ? (
+            <ListInput
+              value={value.groupsInput ?? ""}
+              onChange={(next) => onChange({ ...value, groupsInput: next })}
+              placeholder={'例如：{\n  "*": { "requireMention": true }\n}'}
+            />
+          ) : (
+            <GroupsEditor value={groups} onChange={updateGroups} />
+          )}
         </FormField>
 
-        <FormField label="私聊白名单 (allowFrom)">
-          <ListInput
-            value={value.allowFromInput ?? ""}
-            onChange={(next) => onChange({ ...value, allowFromInput: next })}
-            placeholder="每行一个 Telegram 用户 ID；开放模式至少包含 *"
-          />
-        </FormField>
-
-        <FormField label="群聊发言白名单 (groupAllowFrom)">
-          <ListInput
-            value={value.groupAllowFromInput ?? ""}
-            onChange={(next) => onChange({ ...value, groupAllowFromInput: next })}
-            placeholder="每行一个 Telegram 用户 ID"
-          />
-        </FormField>
-
-        <FormField label="群组高级配置 (groups JSON)">
-          <ListInput
-            value={value.groupsInput ?? ""}
-            onChange={(next) => onChange({ ...value, groupsInput: next })}
-            placeholder={'例如：{\n  "*": { "requireMention": true }\n}'}
-          />
-        </FormField>
-
-        <FormField label={t("channels.telegram.streaming")}>
+        <FormField label={t("channels.telegram.streaming")} tipKey="telegramStreaming">
           <Select
             value={value.streamMode ?? "partial"}
             onValueChange={(v) => onChange({ ...value, streamMode: v })}
@@ -1259,31 +2197,33 @@ function TelegramConfigForm({
           </Select>
         </FormField>
 
-        <FormField label="分块流式推送 (blockStreaming)">
-          <Switch
-            checked={value.blockStreaming === true}
-            onCheckedChange={(checked) => onChange({ ...value, blockStreaming: checked })}
-          />
-        </FormField>
+        <FormSwitchField
+          label="分块流式推送 (blockStreaming)"
+          tipKey="blockStreamingPush"
+          checked={value.blockStreaming === true}
+          onCheckedChange={(checked) => onChange({ ...value, blockStreaming: checked })}
+        />
 
-        <FormField label="Webhook URL">
-          <Input
-            value={value.webhookUrl ?? ""}
-            onChange={(event) => onChange({ ...value, webhookUrl: event.target.value })}
-            placeholder="https://example.com/telegram/webhook"
-            className="h-8 text-sm font-mono"
-          />
-        </FormField>
+        <FieldGrid>
+          <FormField label="Webhook URL" tipKey="webhookUrl">
+            <Input
+              value={value.webhookUrl ?? ""}
+              onChange={(event) => onChange({ ...value, webhookUrl: event.target.value })}
+              placeholder="https://example.com/telegram/webhook"
+              className="h-8 text-sm font-mono"
+            />
+          </FormField>
 
-        <FormField label="Webhook Secret">
-          <PasswordInput
-            value={value.webhookSecret ?? ""}
-            onChange={(next) => onChange({ ...value, webhookSecret: next })}
-            placeholder="Telegram webhook 密钥"
-          />
-        </FormField>
+          <FormField label="Webhook Secret" tipKey="webhookSecret">
+            <PasswordInput
+              value={value.webhookSecret ?? ""}
+              onChange={(next) => onChange({ ...value, webhookSecret: next })}
+              placeholder="Telegram webhook 密钥"
+            />
+          </FormField>
+        </FieldGrid>
 
-        <FormField label="Webhook Path">
+        <FormField label="Webhook Path" tipKey="webhookPath">
           <Input
             value={value.webhookPath ?? ""}
             onChange={(event) => onChange({ ...value, webhookPath: event.target.value })}
@@ -1293,8 +2233,7 @@ function TelegramConfigForm({
         </FormField>
       </FormSection>
 
-      {/* Save button */}
-      <div className="flex items-center gap-2 pt-2">
+      <div className="mt-1 flex items-center gap-2 rounded-lg border bg-background px-3 py-2">
         <Button size="sm" onClick={onSave} disabled={saving} className="gap-1.5 text-xs h-8">
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
           {t("channels.save")}

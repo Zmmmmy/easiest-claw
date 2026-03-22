@@ -401,7 +401,7 @@ export function forkOpenclawGateway(entryScript: string, openclawDir: string, to
   }
   child.stdout?.on('data', (d: Buffer) => splitLines(d, false))
   child.stderr?.on('data', (d: Buffer) => splitLines(d, true))
-  child.on('exit', (code, signal) => {
+  ;(child as unknown as NodeJS.EventEmitter).on('exit', (code: number | null, signal: string | null) => {
     // 如果 gatewayProcess 已被换成新进程（升级重启场景），忽略旧进程的 exit 事件
     if (gatewayProcess !== child) return
 
@@ -614,4 +614,3 @@ export async function restartBundledGateway(): Promise<boolean> {
   }
   return ready
 }
-

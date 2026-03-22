@@ -36,7 +36,7 @@ function BlockMarkdown({ content }: { content: string }) {
 
 /* ── 工具参数摘要（从 arguments 中提取关键信息作为标题后缀） ───────────── */
 
-function toolCallSummary(name: string, args: Record<string, unknown>): string {
+function toolCallSummary(_name: string, args: Record<string, unknown>): string {
   // 常见工具的路径/查询等关键参数
   const keyFields = ["path", "file_path", "filePath", "command", "query", "url", "pattern", "content"]
   for (const key of keyFields) {

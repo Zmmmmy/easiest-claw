@@ -72,7 +72,6 @@ export function AgentFilesSheet({ agent, open, onOpenChange }: AgentFilesSheetPr
   const [loadingFile, setLoadingFile] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editContent, setEditContent] = useState("")
-  const [content, setContent] = useState("")
   const [selected, setSelected] = useState<SelectedFile | null>(null)
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set())
   const [fileError, setFileError] = useState<string | null>(null)
@@ -113,30 +112,24 @@ export function AgentFilesSheet({ agent, open, onOpenChange }: AgentFilesSheetPr
         const res = await window.ipc.agentsFilesGet({ agentId: agent.id, name: file.name })
         if (res.ok) {
           const c = (res.result as { file?: { content?: string } })?.file?.content ?? ""
-          setContent(c)
           setEditContent(c)
         } else {
-          setContent("")
           setEditContent("")
         }
       } else {
         const res = await window.ipc.agentsWorkspaceRead({ agentId: agent.id, filePath: file.path })
         if (res.ok) {
           if (res.binary) {
-            setContent("")
             setEditContent("")
             setFileError(t("workspace.binaryFile"))
           } else if (res.tooLarge) {
-            setContent("")
             setEditContent("")
             setFileError(t("workspace.fileTooLarge"))
           } else {
             const c = res.content ?? ""
-            setContent(c)
             setEditContent(c)
           }
         } else {
-          setContent("")
           setEditContent("")
           setFileError(res.error ?? "")
         }
@@ -157,7 +150,6 @@ export function AgentFilesSheet({ agent, open, onOpenChange }: AgentFilesSheetPr
       })
       if (res.ok) {
         toast.success(`${selected.name} ${t("workspace.saved")}`)
-        setContent(editContent)
         loadFiles()
       } else {
         toast.error((res as { error?: string }).error ?? t("workspace.saveFailed"))

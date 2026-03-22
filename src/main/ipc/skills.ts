@@ -30,7 +30,6 @@ function setCache<T>(key: string, data: T, ttlMs: number): void {
 }
 
 const CACHE_TTL_EXPLORE = 15 * 60_000  // 15 min for explore/browse
-const CACHE_TTL_SEARCH  = 5 * 60_000   // 5 min for search
 
 /** Skill item as returned from skills.sh HTML parsing */
 interface SkillsShItem {
@@ -58,29 +57,6 @@ async function fetchText(url: string): Promise<string> {
       }
       response.on('data', (chunk) => { body += chunk.toString() })
       response.on('end', () => resolve(body))
-    })
-    request.on('error', reject)
-    request.end()
-  })
-}
-
-/** Fetch a URL and save response bytes to disk */
-async function fetchToFile(url: string, destPath: string): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const request = net.request({ url, method: 'GET' })
-    request.setHeader('User-Agent', DESKTOP_USER_AGENT)
-    request.on('response', (response) => {
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        let body = ''
-        response.on('data', (chunk) => { body += chunk.toString() })
-        response.on('end', () => reject(new Error(`HTTP ${response.statusCode}: ${body.slice(0, 200)}`)))
-        return
-      }
-      const chunks: Buffer[] = []
-      response.on('data', (chunk) => { chunks.push(Buffer.from(chunk)) })
-      response.on('end', () => {
-        fs.writeFile(destPath, Buffer.concat(chunks)).then(resolve).catch(reject)
-      })
     })
     request.on('error', reject)
     request.end()

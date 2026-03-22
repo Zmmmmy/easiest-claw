@@ -47,7 +47,6 @@ export function OpenclawUpdatePanel() {
     const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
     const [checking, setChecking] = useState(false)
     const [upgrade, setUpgrade] = useState<UpgradeState>({ running: false, steps: EMPTY_UPGRADE_STEPS() })
-    const [activeSource, setActiveSource] = useState<string>('')
     const [loading, setLoading] = useState(true)
 
     // 加载当前版本信息
@@ -55,7 +54,6 @@ export function OpenclawUpdatePanel() {
         window.ipc.envDetect().then((res) => {
             const r = res as { ok: boolean; result?: { openclaw: { version?: string; activeSource: string } } }
             if (r.ok && r.result) {
-                setActiveSource(r.result.openclaw.activeSource)
                 if (r.result.openclaw.version) {
                     setUpdateInfo({ current: r.result.openclaw.version, latest: null, hasUpdate: false })
                 }

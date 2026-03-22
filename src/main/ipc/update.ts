@@ -364,9 +364,7 @@ async function performUpgrade(
   const downloadDir = join(os.tmpdir(), `openclaw-upgrade-${version}-${Date.now()}`)
   const backupDir = openclawDir + '.backup'
   // zip 解压到 openclawDir 的父目录（zip 内部自带 openclaw/ 前缀）
-  // extractZips 会解压到 extractRoot/openclaw/，即 stagingOcDir
-  const extractRoot = join(openclawDir, '..') // e.g. userData/
-  const stagingOcDir = join(extractRoot, 'openclaw') // 解压产物会在这里（如果 openclawDir 就是这个路径）
+  // extractZips 内部会落到 openclawDir 对应目录结构
   // 但 openclawDir 可能就是 extractRoot/openclaw，需要先 rename 走
   let gatewayWasStopped = false
 

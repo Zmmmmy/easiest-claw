@@ -1,4 +1,4 @@
-import type { Message, ContentBlock, ToolResultBlock } from "@/types"
+import type { Message, ToolResultBlock } from "@/types"
 import type { AppState, AppAction } from "../app-types"
 import { extractTextContent, extractImageAttachments, extractFileAttachments, stripFileAttachmentBlock, extractAssistantContentBlocks, extractToolResult, mergeToolResults, uniqueId } from "../app-utils"
 import { stripSenderMetadata, stripUiMetadata } from "@/lib/text/message-extract"

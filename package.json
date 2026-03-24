@@ -60,7 +60,7 @@
     "@electron-toolkit/eslint-config-ts": "^2.0.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@tailwindcss/vite": "^4.0.0",
-    "@types/adm-zip": "^0.5.7",
+    "@types/adm-zip": "^0.5.8",
     "@types/archiver": "^7.0.0",
     "@types/node": "^22.13.10",
     "@types/react": "^19.0.10",
